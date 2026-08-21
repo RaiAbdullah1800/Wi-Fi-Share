@@ -1,0 +1,17 @@
+# Python bytecode & cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Runtime configuration & private passwords
+config.json
+
+# Storage folder contents (except .gitkeep)
+shared_storage/*
+!shared_storage/.gitkeep
+
+# System & IDE temp files
+.DS_Store
+.vscode/
+.idea/
+*.log

@@ -1,0 +1,537 @@
+import os
+import sys
+import socket
+import json
+import urllib.parse
+import mimetypes
+import shutil
+import time
+import uuid
+import secrets
+import random
+import string
+from datetime import datetime
+from http.server import HTTPServer, BaseHTTPRequestHandler
+from socketserver import ThreadingMixIn
+
+# Constants & Paths
+PORT = 5000
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+STORAGE_DIR = os.path.join(BASE_DIR, "shared_storage")
+PUBLIC_DIR = os.path.join(BASE_DIR, "public")
+CONFIG_FILE = os.path.join(BASE_DIR, "config.json")
+
+# Ensure directories exist
+os.makedirs(STORAGE_DIR, exist_ok=True)
+os.makedirs(PUBLIC_DIR, exist_ok=True)
+
+# Default Config
+config = {
+    "admin_password": "admin123"
+}
+if os.path.exists(CONFIG_FILE):
+    try:
+        with open(CONFIG_FILE, 'r') as f:
+            config.update(json.load(f))
+    except Exception as e:
+        print(f"Error loading config.json: {e}")
+else:
+    with open(CONFIG_FILE, 'w') as f:
+        json.dump(config, f, indent=2)
+
+# Auth & Sessions State
+# temp_passwords = { "code": { "permissions": ["read", "write", "delete"], "expires_at": epoch, "label": "..." } }
+temp_passwords = {}
+# sessions = { "token": { "role": "admin"|"guest", "permissions": [...], "expires_at": epoch } }
+sessions = {}
+
+# Shared in-memory clipboard text
+shared_clipboard = {
+    "text": "Welcome to Wi-Fi File & Text Share! Type text here to sync across devices.",
+    "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+}
+
+def get_local_ips():
+    """Detect local network IP addresses (Wi-Fi / LAN)."""
+    ips = []
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.settimeout(0.5)
+        s.connect(('8.8.8.8', 80))
+        primary_ip = s.getsockname()[0]
+        s.close()
+        if primary_ip and not primary_ip.startswith('127.'):
+            ips.append(primary_ip)
+    except Exception:
+        pass
+
+    try:
+        hostname = socket.gethostname()
+        for ip in socket.gethostbyname_ex(hostname)[2]:
+            if not ip.startswith('127.') and ip not in ips:
+                ips.append(ip)
+    except Exception:
+        pass
+
+    if not ips:
+        ips = ['127.0.0.1']
+    return ips
+
+def format_size(size_in_bytes):
+    if size_in_bytes < 1024:
+        return f"{size_in_bytes} B"
+    elif size_in_bytes < 1024 * 1024:
+        return f"{size_in_bytes / 1024:.1f} KB"
+    elif size_in_bytes < 1024 * 1024 * 1024:
+        return f"{size_in_bytes / (1024 * 1024):.1f} MB"
+    else:
+        return f"{size_in_bytes / (1024 * 1024 * 1024):.2f} GB"
+
+def get_file_category(filename):
+    ext = os.path.splitext(filename)[1].lower()
+    if ext in ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg', '.bmp', '.ico']:
+        return 'image'
+    elif ext in ['.mp4', '.mkv', '.webm', '.avi', '.mov', '.wmv']:
+        return 'video'
+    elif ext in ['.mp3', '.wav', '.ogg', '.flac', '.m4a']:
+        return 'audio'
+    elif ext in ['.pdf', '.doc', '.docx', '.txt', '.md', '.xls', '.xlsx', '.ppt', '.pptx']:
+        return 'document'
+    elif ext in ['.zip', '.tar', '.gz', '.7z', '.rar', '.iso']:
+        return 'archive'
+    elif ext in ['.py', '.js', '.html', '.css', '.json', '.c', '.cpp', '.sh', '.java']:
+        return 'code'
+    else:
+        return 'file'
+
+def clean_expired_passwords():
+    now = time.time()
+    expired_keys = [code for code, data in temp_passwords.items() if data['expires_at'] < now]
+    for code in expired_keys:
+        del temp_passwords[code]
+
+class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
+    daemon_threads = True
+
+class RequestHandler(BaseHTTPRequestHandler):
+
+    def log_message(self, format, *args):
+        sys.stdout.write(f"[{datetime.now().strftime('%H:%M:%S')}] {args[0]} {args[1]}\n")
+
+    def send_json(self, data, status=200):
+        body = json.dumps(data).encode('utf-8')
+        self.send_response(status)
+        self.send_header('Content-Type', 'application/json')
+        self.send_header('Content-Length', str(len(body)))
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.end_headers()
+        self.wfile.write(body)
+
+    def send_error_msg(self, message, status=400):
+        self.send_json({"error": message}, status=status)
+
+    def get_auth_token(self):
+        auth_header = self.headers.get('Authorization', '')
+        if auth_header.startswith('Bearer '):
+            return auth_header[7:].strip()
+        parsed = urllib.parse.urlparse(self.path)
+        params = urllib.parse.parse_qs(parsed.query)
+        if 'token' in params:
+            return params['token'][0]
+        return None
+
+    def authenticate(self, required_permission=None):
+        """Check if request has a valid token and necessary permission."""
+        token = self.get_auth_token()
+        if not token or token not in sessions:
+            self.send_error_msg("Unauthorized. Authentication required.", status=401)
+            return None
+
+        session = sessions[token]
+        if session['expires_at'] and session['expires_at'] < time.time():
+            del sessions[token]
+            self.send_error_msg("Session expired. Please log in again.", status=401)
+            return None
+
+        if required_permission and required_permission not in session['permissions']:
+            self.send_error_msg(f"Forbidden. Missing '{required_permission}' permission.", status=403)
+            return None
+
+        return session
+
+    def do_OPTIONS(self):
+        self.send_response(200)
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+        self.end_headers()
+
+    def do_GET(self):
+        parsed = urllib.parse.urlparse(self.path)
+        path = parsed.path
+
+        # Unauthenticated Endpoint: Public Info
+        if path == '/api/info':
+            ips = get_local_ips()
+            self.send_json({
+                "local_ips": ips,
+                "port": PORT,
+                "primary_ip": ips[0] if ips else '127.0.0.1',
+                "primary_url": f"http://{ips[0]}:{PORT}" if ips else f"http://127.0.0.1:{PORT}",
+                "storage_dir": STORAGE_DIR
+            })
+            return
+
+        # Check session status API
+        if path == '/api/auth/status':
+            session = self.authenticate()
+            if session:
+                self.send_json({"authenticated": True, "role": session['role'], "permissions": session['permissions']})
+            return
+
+        # API: Admin List Temporary Passwords
+        if path == '/api/passwords/list':
+            session = self.authenticate(required_permission='admin')
+            if not session:
+                return
+            clean_expired_passwords()
+            pass_list = []
+            now = time.time()
+            for code, data in temp_passwords.items():
+                remaining = max(0, int(data['expires_at'] - now))
+                pass_list.append({
+                    "code": code,
+                    "label": data.get("label", "Guest Key"),
+                    "permissions": data["permissions"],
+                    "expires_in_seconds": remaining,
+                    "expires_at_formatted": datetime.fromtimestamp(data['expires_at']).strftime("%H:%M:%S (%b %d)")
+                })
+            self.send_json({"passwords": pass_list})
+            return
+
+        # Serve static frontend files (html, css, js, icons) - Publicly accessible for login view
+        target_file = path.lstrip('/')
+        if not target_file:
+            target_file = 'index.html'
+
+        static_path = os.path.abspath(os.path.join(PUBLIC_DIR, target_file))
+
+        if static_path.startswith(PUBLIC_DIR) and os.path.isfile(static_path):
+            mime_type, _ = mimetypes.guess_type(static_path)
+            if not mime_type:
+                mime_type = 'text/plain'
+            with open(static_path, 'rb') as f:
+                content = f.read()
+            self.send_response(200)
+            self.send_header('Content-Type', mime_type)
+            self.send_header('Content-Length', str(len(content)))
+            self.end_headers()
+            self.wfile.write(content)
+            return
+
+        # Protected API & File Download Endpoints (Require 'read' permission)
+        if path == '/api/files':
+            session = self.authenticate(required_permission='read')
+            if not session:
+                return
+            files_info = []
+            try:
+                for entry in sorted(os.listdir(STORAGE_DIR)):
+                    full_path = os.path.join(STORAGE_DIR, entry)
+                    if os.path.isfile(full_path):
+                        stat = os.stat(full_path)
+                        files_info.append({
+                            "name": entry,
+                            "size": stat.st_size,
+                            "size_formatted": format_size(stat.st_size),
+                            "mod_time": stat.st_mtime,
+                            "mod_time_formatted": datetime.fromtimestamp(stat.st_mtime).strftime("%b %d, %Y %H:%M"),
+                            "category": get_file_category(entry),
+                            "url": f"/shared_files/{urllib.parse.quote(entry)}"
+                        })
+            except Exception as e:
+                self.send_error_msg(f"Failed to list files: {str(e)}", status=500)
+                return
+            self.send_json({"files": files_info})
+            return
+
+        if path == '/api/clipboard':
+            session = self.authenticate(required_permission='read')
+            if not session:
+                return
+            self.send_json(shared_clipboard)
+            return
+
+        if path.startswith('/shared_files/'):
+            session = self.authenticate(required_permission='read')
+            if not session:
+                return
+            filename = urllib.parse.unquote(path[len('/shared_files/'):])
+            file_path = os.path.abspath(os.path.join(STORAGE_DIR, filename))
+            if not file_path.startswith(STORAGE_DIR) or not os.path.exists(file_path):
+                self.send_error_msg("File not found", status=404)
+                return
+            try:
+                mime_type, _ = mimetypes.guess_type(file_path)
+                if not mime_type:
+                    mime_type = 'application/octet-stream'
+                file_size = os.path.getsize(file_path)
+                self.send_response(200)
+                self.send_header('Content-Type', mime_type)
+                self.send_header('Content-Length', str(file_size))
+                self.send_header('Content-Disposition', f'inline; filename="{urllib.parse.quote(filename)}"')
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.end_headers()
+                with open(file_path, 'rb') as f:
+                    shutil.copyfileobj(f, self.wfile)
+            except Exception as e:
+                self.send_error_msg(f"Error reading file: {str(e)}", status=500)
+            return
+
+        self.send_error_msg("Page not found", status=404)
+
+    def do_POST(self):
+        parsed = urllib.parse.urlparse(self.path)
+        path = parsed.path
+
+        # Unauthenticated API: Login
+        if path == '/api/login':
+            content_length = int(self.headers.get('Content-Length', 0))
+            body = self.rfile.read(content_length)
+            try:
+                data = json.loads(body.decode('utf-8'))
+                input_pass = data.get("password", "").strip()
+
+                # Check Permanent Admin Password
+                if input_pass == config["admin_password"]:
+                    token = secrets.token_hex(24)
+                    sessions[token] = {
+                        "role": "admin",
+                        "permissions": ["read", "write", "delete", "admin"],
+                        "expires_at": None  # Permanent session until logout
+                    }
+                    self.send_json({
+                        "status": "success",
+                        "token": token,
+                        "role": "admin",
+                        "permissions": ["read", "write", "delete", "admin"]
+                    })
+                    return
+
+                # Check Temporary Guest Passwords
+                clean_expired_passwords()
+                if input_pass in temp_passwords:
+                    pass_info = temp_passwords[input_pass]
+                    token = secrets.token_hex(24)
+                    sessions[token] = {
+                        "role": "guest",
+                        "permissions": pass_info["permissions"],
+                        "expires_at": pass_info["expires_at"]
+                    }
+                    self.send_json({
+                        "status": "success",
+                        "token": token,
+                        "role": "guest",
+                        "permissions": pass_info["permissions"],
+                        "expires_at": pass_info["expires_at"]
+                    })
+                    return
+
+                self.send_error_msg("Invalid password. Please check your password and try again.", status=401)
+            except Exception as e:
+                self.send_error_msg(f"Login error: {str(e)}", status=400)
+            return
+
+        # Logout Endpoint
+        if path == '/api/logout':
+            token = self.get_auth_token()
+            if token in sessions:
+                del sessions[token]
+            self.send_json({"status": "success"})
+            return
+
+        # Admin API: Generate Temporary Password
+        if path == '/api/passwords/generate':
+            session = self.authenticate(required_permission='admin')
+            if not session:
+                return
+            content_length = int(self.headers.get('Content-Length', 0))
+            body = self.rfile.read(content_length)
+            try:
+                data = json.loads(body.decode('utf-8'))
+                duration_minutes = int(data.get("duration_minutes", 60))
+                access_type = data.get("access_type", "read_write") # read_only, read_write, full_access
+                label = data.get("label", "Guest Pass").strip()
+
+                if access_type == "read_only":
+                    perms = ["read"]
+                elif access_type == "read_write":
+                    perms = ["read", "write"]
+                else: # full_access
+                    perms = ["read", "write", "delete"]
+
+                # Generate 6-digit readable code
+                code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
+                expires_at = time.time() + (duration_minutes * 60)
+
+                temp_passwords[code] = {
+                    "permissions": perms,
+                    "expires_at": expires_at,
+                    "label": label,
+                    "duration_minutes": duration_minutes,
+                    "access_type": access_type
+                }
+
+                self.send_json({
+                    "status": "success",
+                    "code": code,
+                    "label": label,
+                    "permissions": perms,
+                    "expires_at": expires_at,
+                    "expires_at_formatted": datetime.fromtimestamp(expires_at).strftime("%H:%M:%S (%b %d)"),
+                    "duration_minutes": duration_minutes
+                })
+            except Exception as e:
+                self.send_error_msg(f"Failed to generate key: {str(e)}", status=400)
+            return
+
+        # Admin API: Change Permanent Password
+        if path == '/api/admin/change-password':
+            session = self.authenticate(required_permission='admin')
+            if not session:
+                return
+            content_length = int(self.headers.get('Content-Length', 0))
+            body = self.rfile.read(content_length)
+            try:
+                data = json.loads(body.decode('utf-8'))
+                new_pass = data.get("new_password", "").strip()
+                if len(new_pass) < 4:
+                    self.send_error_msg("Password must be at least 4 characters long", status=400)
+                    return
+                config["admin_password"] = new_pass
+                with open(CONFIG_FILE, 'w') as f:
+                    json.dump(config, f, indent=2)
+                self.send_json({"status": "success", "message": "Admin password updated successfully!"})
+            except Exception as e:
+                self.send_error_msg(f"Error: {str(e)}", status=400)
+            return
+
+        # API: Update Clipboard Text (Requires 'write' permission)
+        if path == '/api/clipboard':
+            session = self.authenticate(required_permission='write')
+            if not session:
+                return
+            content_length = int(self.headers.get('Content-Length', 0))
+            body = self.rfile.read(content_length)
+            try:
+                data = json.loads(body.decode('utf-8'))
+                shared_clipboard['text'] = data.get('text', '')
+                shared_clipboard['updated_at'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                self.send_json({"status": "success", "clipboard": shared_clipboard})
+            except Exception as e:
+                self.send_error_msg(f"Invalid JSON: {str(e)}", status=400)
+            return
+
+        # API: File Upload (Requires 'write' permission)
+        if path == '/api/upload':
+            session = self.authenticate(required_permission='write')
+            if not session:
+                return
+            content_type = self.headers.get('Content-Type', '')
+            if 'multipart/form-data' not in content_type:
+                self.send_error_msg("Content-Type must be multipart/form-data", status=400)
+                return
+
+            boundary = content_type.split("boundary=")[-1].encode('ascii')
+            content_length = int(self.headers.get('Content-Length', 0))
+            uploaded_files = []
+            try:
+                body = self.rfile.read(content_length)
+                parts = body.split(b'--' + boundary)
+                for part in parts:
+                    if not part or part == b'--\r\n' or part == b'--':
+                        continue
+                    if b'\r\n\r\n' in part:
+                        headers_raw, file_data = part.split(b'\r\n\r\n', 1)
+                        if file_data.endswith(b'\r\n'):
+                            file_data = file_data[:-2]
+                        headers_str = headers_raw.decode('utf-8', errors='replace')
+                        if 'filename=' in headers_str:
+                            filename_part = headers_str.split('filename=')[1].split('\r\n')[0].strip('"')
+                            filename = os.path.basename(filename_part)
+                            if filename:
+                                dest_path = os.path.join(STORAGE_DIR, filename)
+                                with open(dest_path, 'wb') as f:
+                                    f.write(file_data)
+                                uploaded_files.append(filename)
+                self.send_json({
+                    "status": "success",
+                    "uploaded_files": uploaded_files,
+                    "message": f"Successfully uploaded {len(uploaded_files)} file(s)"
+                })
+            except Exception as e:
+                self.send_error_msg(f"Failed to process file upload: {str(e)}", status=500)
+            return
+
+        self.send_error_msg("Invalid endpoint", status=404)
+
+    def do_DELETE(self):
+        parsed = urllib.parse.urlparse(self.path)
+        path = parsed.path
+
+        # Admin API: Revoke Temporary Password
+        if path.startswith('/api/passwords/revoke/'):
+            session = self.authenticate(required_permission='admin')
+            if not session:
+                return
+            code = urllib.parse.unquote(path[len('/api/passwords/revoke/'):])
+            if code in temp_passwords:
+                del temp_passwords[code]
+                self.send_json({"status": "success", "message": f"Revoked password {code}"})
+            else:
+                self.send_error_msg("Password not found", status=404)
+            return
+
+        # API: File Deletion (Requires 'delete' permission)
+        if path.startswith('/api/files/'):
+            session = self.authenticate(required_permission='delete')
+            if not session:
+                return
+            filename = urllib.parse.unquote(path[len('/api/files/'):])
+            file_path = os.path.abspath(os.path.join(STORAGE_DIR, filename))
+            if not file_path.startswith(STORAGE_DIR) or not os.path.exists(file_path):
+                self.send_error_msg("File not found or access denied", status=404)
+                return
+            try:
+                os.remove(file_path)
+                self.send_json({"status": "success", "message": f"Deleted {filename}"})
+            except Exception as e:
+                self.send_error_msg(f"Failed to delete file: {str(e)}", status=500)
+            return
+
+        self.send_error_msg("Invalid endpoint", status=404)
+
+def run_server():
+    server_address = ('0.0.0.0', PORT)
+    httpd = ThreadedHTTPServer(server_address, RequestHandler)
+    ips = get_local_ips()
+    
+    print("\n" + "="*60)
+    print("🔒 Protected Wi-Fi File & Text Sharing Server Started!")
+    print("="*60)
+    print(f"🔑 Admin Password: '{config['admin_password']}'")
+    print(f"📁 Storage Folder: {STORAGE_DIR}")
+    print("\n🌐 Access URLs:")
+    for ip in ips:
+        print(f"   👉 http://{ip}:{PORT}")
+    print(f"   👉 http://localhost:{PORT}")
+    print("="*60 + "\n")
+
+    try:
+        httpd.serve_forever()
+    except KeyboardInterrupt:
+        print("\nShutting down server gracefully...")
+        httpd.server_close()
+
+if __name__ == '__main__':
+    run_server()
