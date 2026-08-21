@@ -6,7 +6,6 @@ import urllib.parse
 import mimetypes
 import shutil
 import time
-import uuid
 import secrets
 import random
 import string
@@ -40,10 +39,11 @@ else:
         json.dump(config, f, indent=2)
 
 # Auth & Sessions State
-# temp_passwords = { "code": { "permissions": ["read", "write", "delete"], "expires_at": epoch, "label": "..." } }
 temp_passwords = {}
-# sessions = { "token": { "role": "admin"|"guest", "permissions": [...], "expires_at": epoch } }
 sessions = {}
+# IP Access State
+pending_requests = {} # { "ip": { "device_name": "...", "requested_at": epoch } }
+approved_ips = {}     # { "ip": { "device_name": "...", "permissions": [...], "expires_at": epoch, "token": "..." } }
 
 # Shared in-memory clipboard text
 shared_clipboard = {
@@ -52,7 +52,6 @@ shared_clipboard = {
 }
 
 def get_local_ips():
-    """Detect local network IP addresses (Wi-Fi / LAN)."""
     ips = []
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -104,11 +103,20 @@ def get_file_category(filename):
     else:
         return 'file'
 
-def clean_expired_passwords():
+def clean_expired_states():
     now = time.time()
-    expired_keys = [code for code, data in temp_passwords.items() if data['expires_at'] < now]
-    for code in expired_keys:
+    # Clean temp passwords
+    expired_pass = [code for code, data in temp_passwords.items() if data['expires_at'] < now]
+    for code in expired_pass:
         del temp_passwords[code]
+
+    # Clean IP approvals
+    expired_ip_list = [ip for ip, data in approved_ips.items() if data['expires_at'] < now]
+    for ip in expired_ip_list:
+        token = approved_ips[ip].get('token')
+        if token and token in sessions:
+            del sessions[token]
+        del approved_ips[ip]
 
 class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
     daemon_threads = True
@@ -117,6 +125,12 @@ class RequestHandler(BaseHTTPRequestHandler):
 
     def log_message(self, format, *args):
         sys.stdout.write(f"[{datetime.now().strftime('%H:%M:%S')}] {args[0]} {args[1]}\n")
+
+    def get_client_ip(self):
+        ff = self.headers.get('X-Forwarded-For')
+        if ff:
+            return ff.split(',')[0].strip()
+        return self.client_address[0]
 
     def send_json(self, data, status=200):
         body = json.dumps(data).encode('utf-8')
@@ -141,16 +155,34 @@ class RequestHandler(BaseHTTPRequestHandler):
         return None
 
     def authenticate(self, required_permission=None):
-        """Check if request has a valid token and necessary permission."""
+        clean_expired_states()
         token = self.get_auth_token()
-        if not token or token not in sessions:
-            self.send_error_msg("Unauthorized. Authentication required.", status=401)
-            return None
+        session = None
 
-        session = sessions[token]
-        if session['expires_at'] and session['expires_at'] < time.time():
-            del sessions[token]
-            self.send_error_msg("Session expired. Please log in again.", status=401)
+        # 1. Check Token Session
+        if token and token in sessions:
+            sess = sessions[token]
+            if not sess['expires_at'] or sess['expires_at'] > time.time():
+                session = sess
+            else:
+                del sessions[token]
+
+        # 2. Check Client IP Approval (Auto IP Whitelist Auth)
+        if not session:
+            client_ip = self.get_client_ip()
+            if client_ip in approved_ips:
+                ip_info = approved_ips[client_ip]
+                if ip_info['expires_at'] > time.time():
+                    session = {
+                        "role": "guest_ip",
+                        "permissions": ip_info["permissions"],
+                        "expires_at": ip_info["expires_at"],
+                        "device_name": ip_info["device_name"],
+                        "ip": client_ip
+                    }
+
+        if not session:
+            self.send_error_msg("Unauthorized. Authentication required.", status=401)
             return None
 
         if required_permission and required_permission not in session['permissions']:
@@ -169,8 +201,9 @@ class RequestHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path
+        client_ip = self.get_client_ip()
 
-        # Unauthenticated Endpoint: Public Info
+        # Public Info Endpoint
         if path == '/api/info':
             ips = get_local_ips()
             self.send_json({
@@ -178,23 +211,91 @@ class RequestHandler(BaseHTTPRequestHandler):
                 "port": PORT,
                 "primary_ip": ips[0] if ips else '127.0.0.1',
                 "primary_url": f"http://{ips[0]}:{PORT}" if ips else f"http://127.0.0.1:{PORT}",
-                "storage_dir": STORAGE_DIR
+                "storage_dir": STORAGE_DIR,
+                "your_client_ip": client_ip
             })
             return
 
-        # Check session status API
+        # Check Auth Status (Works with Token OR Approved IP)
         if path == '/api/auth/status':
             session = self.authenticate()
             if session:
-                self.send_json({"authenticated": True, "role": session['role'], "permissions": session['permissions']})
+                self.send_json({
+                    "authenticated": True,
+                    "role": session['role'],
+                    "permissions": session['permissions'],
+                    "expires_at": session.get('expires_at'),
+                    "token": self.get_auth_token() or session.get('token')
+                })
             return
 
-        # API: Admin List Temporary Passwords
+        # Public API: Check IP Request Status (Used by Guest Polling Screen)
+        if path == '/api/access/request-status':
+            clean_expired_states()
+            if client_ip in approved_ips:
+                info = approved_ips[client_ip]
+                self.send_json({
+                    "status": "approved",
+                    "client_ip": client_ip,
+                    "token": info["token"],
+                    "permissions": info["permissions"],
+                    "expires_at": info["expires_at"],
+                    "expires_in_seconds": max(0, int(info["expires_at"] - time.time()))
+                })
+            elif client_ip in pending_requests:
+                info = pending_requests[client_ip]
+                self.send_json({
+                    "status": "pending",
+                    "client_ip": client_ip,
+                    "device_name": info["device_name"],
+                    "requested_at_formatted": datetime.fromtimestamp(info["requested_at"]).strftime("%H:%M:%S")
+                })
+            else:
+                self.send_json({"status": "none", "client_ip": client_ip})
+            return
+
+        # Admin API: List Pending Access Requests
+        if path == '/api/access/pending':
+            session = self.authenticate(required_permission='admin')
+            if not session:
+                return
+            requests_list = []
+            for ip, req in pending_requests.items():
+                requests_list.append({
+                    "ip": ip,
+                    "device_name": req["device_name"],
+                    "requested_at": req["requested_at"],
+                    "requested_at_formatted": datetime.fromtimestamp(req["requested_at"]).strftime("%H:%M:%S")
+                })
+            self.send_json({"pending_requests": requests_list})
+            return
+
+        # Admin API: List Active Approved IPs
+        if path == '/api/access/approved-ips':
+            session = self.authenticate(required_permission='admin')
+            if not session:
+                return
+            clean_expired_states()
+            ip_list = []
+            now = time.time()
+            for ip, data in approved_ips.items():
+                remaining = max(0, int(data['expires_at'] - now))
+                ip_list.append({
+                    "ip": ip,
+                    "device_name": data["device_name"],
+                    "permissions": data["permissions"],
+                    "expires_in_seconds": remaining,
+                    "expires_at_formatted": datetime.fromtimestamp(data['expires_at']).strftime("%H:%M:%S (%b %d)")
+                })
+            self.send_json({"approved_ips": ip_list})
+            return
+
+        # Admin API: List Temp Passwords
         if path == '/api/passwords/list':
             session = self.authenticate(required_permission='admin')
             if not session:
                 return
-            clean_expired_passwords()
+            clean_expired_states()
             pass_list = []
             now = time.time()
             for code, data in temp_passwords.items():
@@ -209,7 +310,7 @@ class RequestHandler(BaseHTTPRequestHandler):
             self.send_json({"passwords": pass_list})
             return
 
-        # Serve static frontend files (html, css, js, icons) - Publicly accessible for login view
+        # Serve static frontend files
         target_file = path.lstrip('/')
         if not target_file:
             target_file = 'index.html'
@@ -229,7 +330,7 @@ class RequestHandler(BaseHTTPRequestHandler):
             self.wfile.write(content)
             return
 
-        # Protected API & File Download Endpoints (Require 'read' permission)
+        # Protected File & API Routes
         if path == '/api/files':
             session = self.authenticate(required_permission='read')
             if not session:
@@ -293,8 +394,32 @@ class RequestHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path
+        client_ip = self.get_client_ip()
 
-        # Unauthenticated API: Login
+        # Public API: Guest Request Access
+        if path == '/api/access/request':
+            content_length = int(self.headers.get('Content-Length', 0))
+            body = self.rfile.read(content_length)
+            try:
+                data = json.loads(body.decode('utf-8'))
+                device_name = data.get("device_name", "Local Device").strip() or "Local Device"
+
+                pending_requests[client_ip] = {
+                    "device_name": device_name,
+                    "requested_at": time.time(),
+                    "client_ip": client_ip
+                }
+                self.send_json({
+                    "status": "pending",
+                    "client_ip": client_ip,
+                    "device_name": device_name,
+                    "message": "Access request submitted. Waiting for Admin approval."
+                })
+            except Exception as e:
+                self.send_error_msg(f"Request error: {str(e)}", status=400)
+            return
+
+        # Public API: Login (Password or Temp Passcode)
         if path == '/api/login':
             content_length = int(self.headers.get('Content-Length', 0))
             body = self.rfile.read(content_length)
@@ -302,13 +427,12 @@ class RequestHandler(BaseHTTPRequestHandler):
                 data = json.loads(body.decode('utf-8'))
                 input_pass = data.get("password", "").strip()
 
-                # Check Permanent Admin Password
                 if input_pass == config["admin_password"]:
                     token = secrets.token_hex(24)
                     sessions[token] = {
                         "role": "admin",
                         "permissions": ["read", "write", "delete", "admin"],
-                        "expires_at": None  # Permanent session until logout
+                        "expires_at": None
                     }
                     self.send_json({
                         "status": "success",
@@ -318,8 +442,7 @@ class RequestHandler(BaseHTTPRequestHandler):
                     })
                     return
 
-                # Check Temporary Guest Passwords
-                clean_expired_passwords()
+                clean_expired_states()
                 if input_pass in temp_passwords:
                     pass_info = temp_passwords[input_pass]
                     token = secrets.token_hex(24)
@@ -337,9 +460,83 @@ class RequestHandler(BaseHTTPRequestHandler):
                     })
                     return
 
-                self.send_error_msg("Invalid password. Please check your password and try again.", status=401)
+                self.send_error_msg("Invalid password. Check your password or request access from Admin.", status=401)
             except Exception as e:
                 self.send_error_msg(f"Login error: {str(e)}", status=400)
+            return
+
+        # Admin API: Approve Pending IP Access Request
+        if path == '/api/access/approve':
+            session = self.authenticate(required_permission='admin')
+            if not session:
+                return
+            content_length = int(self.headers.get('Content-Length', 0))
+            body = self.rfile.read(content_length)
+            try:
+                data = json.loads(body.decode('utf-8'))
+                target_ip = data.get("ip")
+                duration_minutes = int(data.get("duration_minutes", 60))
+                access_type = data.get("access_type", "read_write")
+
+                if not target_ip:
+                    self.send_error_msg("IP address required", status=400)
+                    return
+
+                if access_type == "read_only":
+                    perms = ["read"]
+                elif access_type == "read_write":
+                    perms = ["read", "write"]
+                else:
+                    perms = ["read", "write", "delete"]
+
+                expires_at = time.time() + (duration_minutes * 60)
+                token = secrets.token_hex(24)
+
+                device_name = "Local Device"
+                if target_ip in pending_requests:
+                    device_name = pending_requests[target_ip]["device_name"]
+                    del pending_requests[target_ip]
+
+                sessions[token] = {
+                    "role": "guest_ip",
+                    "permissions": perms,
+                    "expires_at": expires_at,
+                    "ip": target_ip,
+                    "device_name": device_name
+                }
+
+                approved_ips[target_ip] = {
+                    "device_name": device_name,
+                    "permissions": perms,
+                    "expires_at": expires_at,
+                    "token": token
+                }
+
+                self.send_json({
+                    "status": "success",
+                    "message": f"Approved access for IP {target_ip} ({duration_minutes}m limit)",
+                    "ip": target_ip,
+                    "expires_at": expires_at
+                })
+            except Exception as e:
+                self.send_error_msg(f"Approval error: {str(e)}", status=400)
+            return
+
+        # Admin API: Reject Pending IP Access Request
+        if path == '/api/access/reject':
+            session = self.authenticate(required_permission='admin')
+            if not session:
+                return
+            content_length = int(self.headers.get('Content-Length', 0))
+            body = self.rfile.read(content_length)
+            try:
+                data = json.loads(body.decode('utf-8'))
+                target_ip = data.get("ip")
+                if target_ip in pending_requests:
+                    del pending_requests[target_ip]
+                self.send_json({"status": "success", "message": f"Rejected request from {target_ip}"})
+            except Exception as e:
+                self.send_error_msg(f"Reject error: {str(e)}", status=400)
             return
 
         # Logout Endpoint
@@ -347,6 +544,8 @@ class RequestHandler(BaseHTTPRequestHandler):
             token = self.get_auth_token()
             if token in sessions:
                 del sessions[token]
+            if client_ip in approved_ips:
+                del approved_ips[client_ip]
             self.send_json({"status": "success"})
             return
 
@@ -360,17 +559,16 @@ class RequestHandler(BaseHTTPRequestHandler):
             try:
                 data = json.loads(body.decode('utf-8'))
                 duration_minutes = int(data.get("duration_minutes", 60))
-                access_type = data.get("access_type", "read_write") # read_only, read_write, full_access
+                access_type = data.get("access_type", "read_write")
                 label = data.get("label", "Guest Pass").strip()
 
                 if access_type == "read_only":
                     perms = ["read"]
                 elif access_type == "read_write":
                     perms = ["read", "write"]
-                else: # full_access
+                else:
                     perms = ["read", "write", "delete"]
 
-                # Generate 6-digit readable code
                 code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
                 expires_at = time.time() + (duration_minutes * 60)
 
@@ -416,7 +614,7 @@ class RequestHandler(BaseHTTPRequestHandler):
                 self.send_error_msg(f"Error: {str(e)}", status=400)
             return
 
-        # API: Update Clipboard Text (Requires 'write' permission)
+        # API: Update Clipboard Text
         if path == '/api/clipboard':
             session = self.authenticate(required_permission='write')
             if not session:
@@ -432,7 +630,7 @@ class RequestHandler(BaseHTTPRequestHandler):
                 self.send_error_msg(f"Invalid JSON: {str(e)}", status=400)
             return
 
-        # API: File Upload (Requires 'write' permission)
+        # API: File Upload
         if path == '/api/upload':
             session = self.authenticate(required_permission='write')
             if not session:
@@ -479,6 +677,22 @@ class RequestHandler(BaseHTTPRequestHandler):
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path
 
+        # Admin API: Revoke IP Access
+        if path.startswith('/api/access/revoke-ip/'):
+            session = self.authenticate(required_permission='admin')
+            if not session:
+                return
+            target_ip = urllib.parse.unquote(path[len('/api/access/revoke-ip/'):])
+            if target_ip in approved_ips:
+                token = approved_ips[target_ip].get('token')
+                if token and token in sessions:
+                    del sessions[token]
+                del approved_ips[target_ip]
+                self.send_json({"status": "success", "message": f"Revoked IP access for {target_ip}"})
+            else:
+                self.send_error_msg("IP not found in whitelist", status=404)
+            return
+
         # Admin API: Revoke Temporary Password
         if path.startswith('/api/passwords/revoke/'):
             session = self.authenticate(required_permission='admin')
@@ -492,7 +706,7 @@ class RequestHandler(BaseHTTPRequestHandler):
                 self.send_error_msg("Password not found", status=404)
             return
 
-        # API: File Deletion (Requires 'delete' permission)
+        # API: File Deletion
         if path.startswith('/api/files/'):
             session = self.authenticate(required_permission='delete')
             if not session:
@@ -517,7 +731,7 @@ def run_server():
     ips = get_local_ips()
     
     print("\n" + "="*60)
-    print("🔒 Protected Wi-Fi File & Text Sharing Server Started!")
+    print("🔒 Protected Wi-Fi Share & Timed IP Approval Hub Started!")
     print("="*60)
     print(f"🔑 Admin Password: '{config['admin_password']}'")
     print(f"📁 Storage Folder: {STORAGE_DIR}")

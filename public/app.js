@@ -3,18 +3,37 @@ document.addEventListener('DOMContentLoaded', () => {
   let authToken = localStorage.getItem('wifi_share_token') || '';
   let userRole = '';
   let userPermissions = [];
+  let detectedClientIp = '';
+  let pollingInterval = null;
 
   // DOM Elements
   const loginOverlay = document.getElementById('loginOverlay');
+  const loginFormCard = document.getElementById('loginFormCard');
+  const requestIpCard = document.getElementById('requestIpCard');
+  const waitingIpCard = document.getElementById('waitingIpCard');
+
   const loginForm = document.getElementById('loginForm');
   const loginPassword = document.getElementById('loginPassword');
   const loginError = document.getElementById('loginError');
+
+  const showRequestIpBtn = document.getElementById('showRequestIpBtn');
+  const cancelRequestBtn = document.getElementById('cancelRequestBtn');
+  const requestIpForm = document.getElementById('requestIpForm');
+  const deviceNameInput = document.getElementById('deviceNameInput');
+  const clientIpDisplay = document.getElementById('clientIpDisplay');
+
+  const waitingDeviceName = document.getElementById('waitingDeviceName');
+  const waitingIpDisplay = document.getElementById('waitingIpDisplay');
+  const cancelWaitingBtn = document.getElementById('cancelWaitingBtn');
 
   const appContainer = document.getElementById('appContainer');
   const roleBadge = document.getElementById('roleBadge');
   const roleText = document.getElementById('roleText');
   const logoutBtn = document.getElementById('logoutBtn');
   const manageKeysBtn = document.getElementById('manageKeysBtn');
+
+  const pendingBellBtn = document.getElementById('pendingBellBtn');
+  const pendingCountBadge = document.getElementById('pendingCountBadge');
 
   const networkIp = document.getElementById('networkIp');
   const copyIpBtn = document.getElementById('copyIpBtn');
@@ -27,6 +46,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
   const keysModal = document.getElementById('keysModal');
   const closeKeysBtn = document.getElementById('closeKeysBtn');
+  const pendingRequestsTbody = document.getElementById('pendingRequestsTbody');
+  const approvedIpsTbody = document.getElementById('approvedIpsTbody');
+
   const generatePassForm = document.getElementById('generatePassForm');
   const keyLabel = document.getElementById('keyLabel');
   const keyDuration = document.getElementById('keyDuration');
@@ -66,17 +88,18 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     const response = await fetch(url, options);
     if (response.status === 401) {
-      // Token invalid or expired
       handleLogout();
     }
     return response;
   }
 
-  // Initial Auth Check
+  // Initial Check
   checkAuth();
 
   async function checkAuth() {
     fetchServerInfo(); // Public IP info
+    await checkIpRequestStatus(); // Check if this client IP is pending or approved
+
     if (!authToken) {
       showLoginScreen();
       return;
@@ -97,7 +120,47 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  // Login Handler
+  // Check IP Request Status (Used on page load and guest polling)
+  async function checkIpRequestStatus() {
+    try {
+      const res = await fetch('/api/access/request-status');
+      if (!res.ok) return;
+      const data = await res.json();
+      detectedClientIp = data.client_ip || '';
+      clientIpDisplay.textContent = detectedClientIp;
+
+      if (data.status === 'approved' && data.token) {
+        authToken = data.token;
+        userRole = 'guest_ip';
+        userPermissions = data.permissions;
+        localStorage.setItem('wifi_share_token', authToken);
+        stopPolling();
+        showAppScreen();
+        showToast('IP Access Approved! Logged in automatically.');
+      } else if (data.status === 'pending') {
+        waitingDeviceName.textContent = data.device_name || 'Device';
+        waitingIpDisplay.textContent = detectedClientIp;
+        showWaitingCard();
+        startPolling();
+      }
+    } catch (err) {
+      console.error('Error checking IP status:', err);
+    }
+  }
+
+  function startPolling() {
+    if (pollingInterval) return;
+    pollingInterval = setInterval(checkIpRequestStatus, 2000);
+  }
+
+  function stopPolling() {
+    if (pollingInterval) {
+      clearInterval(pollingInterval);
+      pollingInterval = null;
+    }
+  }
+
+  // Login Form Submission (Password / Temp Passcode)
   loginForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     loginError.textContent = '';
@@ -118,8 +181,9 @@ document.addEventListener('DOMContentLoaded', () => {
         userPermissions = data.permissions;
         localStorage.setItem('wifi_share_token', authToken);
         loginPassword.value = '';
+        stopPolling();
         showAppScreen();
-        showToast(`Welcome! Logged in as ${userRole.toUpperCase()}`);
+        showToast(`Logged in as ${userRole.toUpperCase()}`);
       } else {
         loginError.textContent = data.error || 'Invalid password';
       }
@@ -128,44 +192,82 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // Logout Handler
-  logoutBtn.addEventListener('click', handleLogout);
-  function handleLogout() {
-    if (authToken) {
-      fetch('/api/logout', {
+  // Request IP Access Button Handlers
+  showRequestIpBtn.addEventListener('click', () => {
+    loginFormCard.style.display = 'none';
+    requestIpCard.style.display = 'block';
+    waitingIpCard.style.display = 'none';
+  });
+
+  cancelRequestBtn.addEventListener('click', () => {
+    requestIpCard.style.display = 'none';
+    loginFormCard.style.display = 'block';
+    waitingIpCard.style.display = 'none';
+  });
+
+  requestIpForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const device_name = deviceNameInput.value.trim();
+    if (!device_name) return;
+
+    try {
+      const res = await fetch('/api/access/request', {
         method: 'POST',
-        headers: { 'Authorization': `Bearer ${authToken}` }
-      }).catch(() => {});
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ device_name })
+      });
+      const data = await res.json();
+      if (res.ok && data.status === 'pending') {
+        waitingDeviceName.textContent = device_name;
+        waitingIpDisplay.textContent = data.client_ip;
+        showWaitingCard();
+        startPolling();
+        showToast('Access request sent to Admin!');
+      } else {
+        showToast(data.error || 'Request failed', true);
+      }
+    } catch (err) {
+      showToast('Error sending access request', true);
     }
-    authToken = '';
-    userRole = '';
-    userPermissions = [];
-    localStorage.removeItem('wifi_share_token');
-    showLoginScreen();
-  }
+  });
+
+  cancelWaitingBtn.addEventListener('click', () => {
+    stopPolling();
+    waitingIpCard.style.display = 'none';
+    loginFormCard.style.display = 'block';
+  });
 
   function showLoginScreen() {
     loginOverlay.classList.add('active');
     appContainer.style.display = 'none';
   }
 
+  function showWaitingCard() {
+    loginOverlay.classList.add('active');
+    appContainer.style.display = 'none';
+    loginFormCard.style.display = 'none';
+    requestIpCard.style.display = 'none';
+    waitingIpCard.style.display = 'block';
+  }
+
   function showAppScreen() {
     loginOverlay.classList.remove('active');
     appContainer.style.display = 'block';
 
-    // Update Role Badge & Controls
     if (userRole === 'admin') {
       roleBadge.className = 'user-role-badge admin';
       roleText.textContent = '👑 Admin';
       manageKeysBtn.style.display = 'inline-flex';
+      pendingBellBtn.style.display = 'inline-flex';
+      loadPendingRequests();
     } else {
       roleBadge.className = 'user-role-badge guest';
       const isReadOnly = !userPermissions.includes('write');
       roleText.textContent = isReadOnly ? '👁️ Read-Only Guest' : '✏️ Read & Write Guest';
       manageKeysBtn.style.display = 'none';
+      pendingBellBtn.style.display = 'none';
     }
 
-    // Apply permission visibility
     const isWriteAllowed = userPermissions.includes('write');
     document.querySelectorAll('.write-only').forEach(el => {
       el.style.display = isWriteAllowed ? '' : 'none';
@@ -177,13 +279,36 @@ document.addEventListener('DOMContentLoaded', () => {
     loadClipboardText();
   }
 
-  // Auto-refresh files & clipboard every 4s
+  // Logout Handler
+  logoutBtn.addEventListener('click', handleLogout);
+  function handleLogout() {
+    stopPolling();
+    if (authToken) {
+      fetch('/api/logout', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${authToken}` }
+      }).catch(() => {});
+    }
+    authToken = '';
+    userRole = '';
+    userPermissions = [];
+    localStorage.removeItem('wifi_share_token');
+    loginFormCard.style.display = 'block';
+    requestIpCard.style.display = 'none';
+    waitingIpCard.style.display = 'none';
+    showLoginScreen();
+  }
+
+  // Auto-refresh files & clipboard & pending requests
   setInterval(() => {
     if (authToken) {
       loadFilesList(true);
       loadClipboardText(true);
+      if (userRole === 'admin') {
+        loadPendingRequests(true);
+      }
     }
-  }, 4000);
+  }, 3000);
 
   // Tab Switching
   tabBtns.forEach(btn => {
@@ -203,6 +328,8 @@ document.addEventListener('DOMContentLoaded', () => {
       const res = await fetch('/api/info');
       const data = await res.json();
       currentPrimaryUrl = data.primary_url;
+      detectedClientIp = data.your_client_ip;
+      clientIpDisplay.textContent = detectedClientIp;
       networkIp.textContent = `${data.primary_ip}:${data.port}`;
       modalUrlDisplay.textContent = currentPrimaryUrl;
 
@@ -239,13 +366,170 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // Manage Keys Modal (Admin Only)
-  manageKeysBtn.addEventListener('click', () => {
+  // Manage Keys & Approvals Modal (Admin Only)
+  manageKeysBtn.addEventListener('click', openManagerModal);
+  pendingBellBtn.addEventListener('click', openManagerModal);
+
+  function openManagerModal() {
     keysModal.classList.add('active');
+    loadPendingRequests();
+    loadApprovedIps();
     loadActiveKeys();
-  });
+  }
+
   closeKeysBtn.addEventListener('click', () => keysModal.classList.remove('active'));
   keysModal.addEventListener('click', (e) => { if (e.target === keysModal) keysModal.classList.remove('active'); });
+
+  // Load Pending IP Requests
+  async function loadPendingRequests(isSilent = false) {
+    if (userRole !== 'admin') return;
+    try {
+      const res = await authFetch('/api/access/pending');
+      if (!res.ok) return;
+      const data = await res.json();
+      const list = data.pending_requests || [];
+      pendingCountBadge.textContent = list.length;
+
+      pendingRequestsTbody.innerHTML = '';
+      if (list.length === 0) {
+        pendingRequestsTbody.innerHTML = '<tr><td colspan="6" class="text-center" style="color: var(--text-muted);">No pending access requests</td></tr>';
+        return;
+      }
+
+      list.forEach(item => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td><strong>${escapeHtml(item.device_name)}</strong></td>
+          <td><code>${escapeHtml(item.ip)}</code></td>
+          <td>${item.requested_at_formatted}</td>
+          <td>
+            <select class="req-duration">
+              <option value="15">15 Mins</option>
+              <option value="30">30 Mins</option>
+              <option value="60" selected>1 Hour</option>
+              <option value="360">6 Hours</option>
+              <option value="720">12 Hours</option>
+              <option value="1440">24 Hours</option>
+            </select>
+          </td>
+          <td>
+            <select class="req-perm">
+              <option value="read_only">👁️ Read Only</option>
+              <option value="read_write" selected>✏️ Read & Write</option>
+              <option value="full_access">⚡ Full Guest</option>
+            </select>
+          </td>
+          <td>
+            <div style="display: flex; gap: 4px;">
+              <button class="btn btn-primary approve-btn" style="padding: 2px 8px; font-size: 0.75rem;">Approve</button>
+              <button class="btn btn-danger reject-btn" style="padding: 2px 8px; font-size: 0.75rem;">Reject</button>
+            </div>
+          </td>
+        `;
+
+        const approveBtn = tr.querySelector('.approve-btn');
+        const rejectBtn = tr.querySelector('.reject-btn');
+        const durationSelect = tr.querySelector('.req-duration');
+        const permSelect = tr.querySelector('.req-perm');
+
+        approveBtn.addEventListener('click', () => approveIpRequest(item.ip, durationSelect.value, permSelect.value));
+        rejectBtn.addEventListener('click', () => rejectIpRequest(item.ip));
+
+        pendingRequestsTbody.appendChild(tr);
+      });
+    } catch (err) {
+      if (!isSilent) console.error('Failed to load pending requests:', err);
+    }
+  }
+
+  async function approveIpRequest(ip, duration_minutes, access_type) {
+    try {
+      const res = await authFetch('/api/access/approve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ip, duration_minutes: parseInt(duration_minutes), access_type })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showToast(`Approved IP ${ip} (${duration_minutes}m limit)`);
+        loadPendingRequests();
+        loadApprovedIps();
+      } else {
+        showToast(data.error || 'Approval failed', true);
+      }
+    } catch (err) {
+      showToast('Error approving IP request', true);
+    }
+  }
+
+  async function rejectIpRequest(ip) {
+    try {
+      const res = await authFetch('/api/access/reject', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ip })
+      });
+      if (res.ok) {
+        showToast(`Rejected request from ${ip}`);
+        loadPendingRequests();
+      }
+    } catch (err) {
+      showToast('Error rejecting request', true);
+    }
+  }
+
+  // Load Active Approved IPs
+  async function loadApprovedIps() {
+    if (userRole !== 'admin') return;
+    try {
+      const res = await authFetch('/api/access/approved-ips');
+      if (!res.ok) return;
+      const data = await res.json();
+      const list = data.approved_ips || [];
+
+      approvedIpsTbody.innerHTML = '';
+      if (list.length === 0) {
+        approvedIpsTbody.innerHTML = '<tr><td colspan="5" class="text-center" style="color: var(--text-muted);">No active IP approvals</td></tr>';
+        return;
+      }
+
+      list.forEach(item => {
+        const tr = document.createElement('tr');
+        const minutes = Math.floor(item.expires_in_seconds / 60);
+        const seconds = item.expires_in_seconds % 60;
+        const timeStr = `${minutes}m ${seconds}s`;
+
+        tr.innerHTML = `
+          <td><strong>${escapeHtml(item.device_name)}</strong></td>
+          <td><code>${escapeHtml(item.ip)}</code></td>
+          <td><span class="badge" style="font-size: 0.75rem;">${escapeHtml(item.permissions.join(', '))}</span></td>
+          <td style="color: var(--accent-green); font-family: var(--font-mono);">${timeStr}</td>
+          <td>
+            <button class="btn btn-danger revoke-ip-btn" data-ip="${escapeHtml(item.ip)}" style="padding: 2px 8px; font-size: 0.75rem;">Revoke</button>
+          </td>
+        `;
+        tr.querySelector('.revoke-ip-btn').addEventListener('click', () => revokeIpAccess(item.ip));
+        approvedIpsTbody.appendChild(tr);
+      });
+    } catch (err) {
+      console.error('Failed to load approved IPs:', err);
+    }
+  }
+
+  async function revokeIpAccess(ip) {
+    if (!confirm(`Revoke access for IP ${ip}?`)) return;
+    try {
+      const res = await authFetch(`/api/access/revoke-ip/${encodeURIComponent(ip)}`, {
+        method: 'DELETE'
+      });
+      if (res.ok) {
+        showToast(`Revoked access for IP ${ip}`);
+        loadApprovedIps();
+      }
+    } catch (err) {
+      showToast('Error revoking IP access', true);
+    }
+  }
 
   // Generate Temporary Password Form
   generatePassForm.addEventListener('submit', async (e) => {
@@ -283,7 +567,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // Load Active Keys Table
+  // Load Active Temp Passwords Keys Table
   async function loadActiveKeys() {
     try {
       const res = await authFetch('/api/passwords/list');
@@ -302,17 +586,13 @@ document.addEventListener('DOMContentLoaded', () => {
         const seconds = item.expires_in_seconds % 60;
         const timeStr = `${minutes}m ${seconds}s`;
 
-        const permsStr = item.permissions.join(', ');
-
         tr.innerHTML = `
           <td><code>${escapeHtml(item.code)}</code></td>
           <td>${escapeHtml(item.label)}</td>
-          <td><span class="badge" style="font-size: 0.75rem;">${escapeHtml(permsStr)}</span></td>
+          <td><span class="badge" style="font-size: 0.75rem;">${escapeHtml(item.permissions.join(', '))}</span></td>
           <td style="color: var(--accent-green); font-family: var(--font-mono);">${timeStr}</td>
           <td>
-            <button class="btn btn-danger revoke-btn" data-code="${escapeHtml(item.code)}" style="padding: 2px 8px; font-size: 0.75rem;">
-              Revoke
-            </button>
+            <button class="btn btn-danger revoke-btn" data-code="${escapeHtml(item.code)}" style="padding: 2px 8px; font-size: 0.75rem;">Revoke</button>
           </td>
         `;
         tr.querySelector('.revoke-btn').addEventListener('click', () => revokeKey(item.code));

@@ -18,7 +18,7 @@
 
   <!-- LOGIN OVERLAY -->
   <div class="login-overlay active" id="loginOverlay">
-    <div class="login-card">
+    <div class="login-card" id="loginFormCard">
       <div class="login-header">
         <div class="logo-icon-lg">
           <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
@@ -26,16 +26,69 @@
             <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
           </svg>
         </div>
-        <h2>Password Required</h2>
-        <p>Enter the Permanent Admin Password or a Temporary Access Passcode to continue.</p>
+        <h2>Access Control</h2>
+        <p>Enter password or request IP access approval from the Admin.</p>
       </div>
+
       <form id="loginForm" class="login-form">
         <div class="input-group">
-          <input type="password" id="loginPassword" placeholder="Enter password..." required autofocus>
+          <input type="password" id="loginPassword" placeholder="Enter password or guest passcode..." required autofocus>
           <button type="submit" class="btn btn-primary w-full">Unlock Hub</button>
         </div>
         <div class="login-error" id="loginError"></div>
       </form>
+
+      <div class="login-divider">
+        <span>OR</span>
+      </div>
+
+      <button class="btn btn-secondary w-full" id="showRequestIpBtn">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+          <circle cx="8.5" cy="7" r="4"></circle>
+          <line x1="20" y1="8" x2="20" y2="14"></line>
+          <line x1="17" y1="11" x2="23" y2="11"></line>
+        </svg>
+        Request Access from Admin (IP Approval)
+      </button>
+    </div>
+
+    <!-- REQUEST IP ACCESS MODAL CARD -->
+    <div class="login-card" id="requestIpCard" style="display: none;">
+      <div class="login-header">
+        <div class="logo-icon-lg cyan">
+          <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+          </svg>
+        </div>
+        <h2>Request IP Access</h2>
+        <p>Your client IP address: <code id="clientIpDisplay">Detecting...</code></p>
+      </div>
+
+      <form id="requestIpForm" class="login-form">
+        <div class="input-group">
+          <input type="text" id="deviceNameInput" placeholder="Your Device / Name (e.g. Sam's iPhone)" required>
+          <button type="submit" class="btn btn-primary w-full">Send Request to Admin</button>
+          <button type="button" class="btn btn-secondary w-full" id="cancelRequestBtn">Back to Password Login</button>
+        </div>
+      </form>
+    </div>
+
+    <!-- GUEST WAITING SCREEN CARD -->
+    <div class="login-card" id="waitingIpCard" style="display: none;">
+      <div class="login-header">
+        <div class="pulse-ring-lg">
+          <div class="ring"></div>
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+            <circle cx="12" cy="12" r="10"></circle>
+            <polyline points="12 6 12 12 16 14"></polyline>
+          </svg>
+        </div>
+        <h2 style="margin-top: 1rem;">Waiting for Admin Approval...</h2>
+        <p>Request sent for device <strong id="waitingDeviceName">Device</strong> (<code id="waitingIpDisplay">192.168.x.x</code>).</p>
+        <p class="subtitle" style="margin-top: 0.5rem; color: var(--accent-cyan);">You will be logged in automatically once the Admin approves your request.</p>
+      </div>
+      <button class="btn btn-secondary w-full" id="cancelWaitingBtn" style="margin-top: 1.5rem;">Cancel Request</button>
     </div>
   </div>
 
@@ -64,12 +117,21 @@
           <span class="role-text" id="roleText">Guest</span>
         </div>
 
+        <!-- Admin Pending Requests Bell Badge -->
+        <button class="icon-btn admin-only pending-bell-btn" id="pendingBellBtn" style="display: none;" title="Pending Access Requests">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
+            <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
+          </svg>
+          <span class="bell-badge" id="pendingCountBadge">0</span>
+        </button>
+
         <!-- Admin Only Passwords Control Button -->
         <button class="btn btn-secondary admin-only" id="manageKeysBtn" style="display: none;">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M21 2l-2 2m-2-2l2 2m2 0l-3 3m0 0l-2-2m2 2l-4 4m0 0l-2-2m2 2l-3 3m-2-2l2 2m0 0L3 21v-3l9-9"></path>
           </svg>
-          Manage Access Keys
+          Access & IP Manager
         </button>
 
         <div class="network-badge-card" id="networkCard">
@@ -130,7 +192,6 @@
       
       <!-- FILES TAB -->
       <section id="files-tab" class="tab-content active">
-        <!-- Upload drop zone (Hidden for Read-Only users) -->
         <div class="upload-dropzone write-only" id="dropzone">
           <input type="file" id="fileInput" multiple style="display: none;">
           <div class="dropzone-content">
@@ -173,7 +234,6 @@
           </div>
         </div>
 
-        <!-- Files List Container -->
         <div class="files-grid" id="filesGrid"></div>
 
         <div class="empty-state" id="emptyState" style="display: none;">
@@ -229,19 +289,63 @@
     </div>
   </div>
 
-  <!-- ADMIN PASSWORDS MANAGER MODAL -->
+  <!-- ADMIN ACCESS & IP APPROVALS MANAGER MODAL -->
   <div class="modal-overlay" id="keysModal">
     <div class="modal-card modal-lg">
       <button class="modal-close" id="closeKeysBtn">&times;</button>
       <div class="modal-header align-left">
-        <h2>🔑 Access Key & Temporary Passwords Manager</h2>
-        <p>Generate timed guest passwords with specific access rights or change permanent admin password.</p>
+        <h2>🔑 Access & IP Approvals Manager</h2>
+        <p>Approve pending IP access requests, generate timed guest passcodes, or change permanent admin password.</p>
       </div>
 
       <div class="modal-body-scroll">
-        <!-- Generate Passkey Section -->
+        
+        <!-- SECTION 1: PENDING IP ACCESS REQUESTS -->
         <div class="manager-section">
-          <h3>Generate Temporary Passcode</h3>
+          <h3>🔔 Pending IP Access Requests</h3>
+          <div class="table-responsive">
+            <table class="keys-table">
+              <thead>
+                <tr>
+                  <th>Device / Name</th>
+                  <th>Client IP</th>
+                  <th>Requested At</th>
+                  <th>Time Limit Expiry</th>
+                  <th>Permission</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="pendingRequestsTbody">
+                <tr><td colspan="6" class="text-center" style="color: var(--text-muted);">No pending access requests</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- SECTION 2: APPROVED ACTIVE IP SESSIONS (TIMED) -->
+        <div class="manager-section">
+          <h3>🌐 Active Approved IP Sessions (Timed)</h3>
+          <div class="table-responsive">
+            <table class="keys-table">
+              <thead>
+                <tr>
+                  <th>Device / Name</th>
+                  <th>Client IP</th>
+                  <th>Permissions</th>
+                  <th>Time Remaining</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody id="approvedIpsTbody">
+                <tr><td colspan="5" class="text-center" style="color: var(--text-muted);">No active IP approvals</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- SECTION 3: GENERATE TEMPORARY PASSCODE -->
+        <div class="manager-section">
+          <h3>🔑 Generate Temporary Passcode</h3>
           <form id="generatePassForm" class="generate-form">
             <div class="form-row">
               <div class="form-group">
@@ -271,7 +375,6 @@
             <button type="submit" class="btn btn-primary">Generate Temporary Passcode</button>
           </form>
 
-          <!-- Generated Key Box -->
           <div class="generated-key-box" id="generatedKeyBox" style="display: none;">
             <div>
               <span class="key-box-title">Generated Temporary Password:</span>
@@ -281,9 +384,9 @@
           </div>
         </div>
 
-        <!-- Active Temp Keys Table -->
+        <!-- SECTION 4: ACTIVE TEMP PASSWORDS TABLE -->
         <div class="manager-section">
-          <h3>Active Temporary Passwords</h3>
+          <h3>📋 Active Temporary Passwords</h3>
           <div class="table-responsive">
             <table class="keys-table">
               <thead>
@@ -296,15 +399,15 @@
                 </tr>
               </thead>
               <tbody id="activeKeysTbody">
-                <tr><td colspan="5" class="text-center">No active temporary passwords</td></tr>
+                <tr><td colspan="5" class="text-center" style="color: var(--text-muted);">No active temporary passwords</td></tr>
               </tbody>
             </table>
           </div>
         </div>
 
-        <!-- Change Admin Password -->
+        <!-- SECTION 5: CHANGE ADMIN PASSWORD -->
         <div class="manager-section">
-          <h3>Change Permanent Admin Password</h3>
+          <h3>⚙️ Change Permanent Admin Password</h3>
           <form id="changeAdminPassForm" class="change-pass-form">
             <div class="form-row">
               <input type="password" id="newAdminPass" placeholder="Enter new admin password (min 4 chars)" required>
@@ -312,6 +415,7 @@
             </div>
           </form>
         </div>
+
       </div>
     </div>
   </div>
