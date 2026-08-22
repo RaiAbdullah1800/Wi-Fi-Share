@@ -79,6 +79,33 @@ document.addEventListener('DOMContentLoaded', () => {
 
   let currentPrimaryUrl = '';
   let allFiles = [];
+  let currentPreviewIndex = -1;
+  let currentLoadedText = '';
+
+  // Preview Modal Elements
+  const previewModal = document.getElementById('previewModal');
+  const closePreviewBtn = document.getElementById('closePreviewBtn');
+  const prevFileBtn = document.getElementById('prevFileBtn');
+  const nextFileBtn = document.getElementById('nextFileBtn');
+  const previewFileIcon = document.getElementById('previewFileIcon');
+  const previewFileName = document.getElementById('previewFileName');
+  const previewFileMeta = document.getElementById('previewFileMeta');
+  const previewCopyTextBtn = document.getElementById('previewCopyTextBtn');
+  const previewDownloadBtn = document.getElementById('previewDownloadBtn');
+
+  const previewImageContainer = document.getElementById('previewImageContainer');
+  const previewImage = document.getElementById('previewImage');
+  const previewTextContainer = document.getElementById('previewTextContainer');
+  const previewTextCode = document.getElementById('previewTextCode');
+  const previewVideoContainer = document.getElementById('previewVideoContainer');
+  const previewVideo = document.getElementById('previewVideo');
+  const previewAudioContainer = document.getElementById('previewAudioContainer');
+  const previewAudio = document.getElementById('previewAudio');
+  const previewPdfContainer = document.getElementById('previewPdfContainer');
+  const previewPdfFrame = document.getElementById('previewPdfFrame');
+  const previewFallbackContainer = document.getElementById('previewFallbackContainer');
+  const fallbackDownloadBtn = document.getElementById('fallbackDownloadBtn');
+  const previewLoader = document.getElementById('previewLoader');
 
   // Helper fetch wrapper with Bearer token
   async function authFetch(url, options = {}) {
@@ -746,6 +773,11 @@ document.addEventListener('DOMContentLoaded', () => {
       const icon = categoryIcons[file.category] || '📎';
 
       card.innerHTML = `
+        ${file.preview_type === 'image' ? `
+          <div class="file-card-thumb" title="Click to preview image">
+            <img src="${file.url}?token=${encodeURIComponent(authToken)}" alt="${escapeHtml(file.name)}">
+          </div>
+        ` : ''}
         <div class="file-header">
           <div class="file-icon ${file.category}">${icon}</div>
           <div class="file-details">
@@ -754,6 +786,13 @@ document.addEventListener('DOMContentLoaded', () => {
           </div>
         </div>
         <div class="file-actions">
+          <button class="btn btn-primary preview-btn" data-filename="${escapeHtml(file.name)}" title="Preview file inline without downloading">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+              <circle cx="12" cy="12" r="3"></circle>
+            </svg>
+            Preview
+          </button>
           <a href="${file.url}?token=${encodeURIComponent(authToken)}" download class="btn btn-secondary" title="Download">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
@@ -774,6 +813,15 @@ document.addEventListener('DOMContentLoaded', () => {
         </div>
       `;
 
+      const previewBtn = card.querySelector('.preview-btn');
+      if (previewBtn) {
+        previewBtn.addEventListener('click', () => openPreviewModal(file.name));
+      }
+      const thumb = card.querySelector('.file-card-thumb');
+      if (thumb) {
+        thumb.addEventListener('click', () => openPreviewModal(file.name));
+      }
+
       if (canDelete) {
         const deleteBtn = card.querySelector('.delete-btn');
         deleteBtn.addEventListener('click', () => deleteFile(file.name));
@@ -782,6 +830,153 @@ document.addEventListener('DOMContentLoaded', () => {
       filesGrid.appendChild(card);
     });
   }
+
+  // Open File Preview Modal
+  async function openPreviewModal(filename) {
+    const fileIndex = allFiles.findIndex(f => f.name === filename);
+    if (fileIndex === -1) return;
+    currentPreviewIndex = fileIndex;
+    const file = allFiles[currentPreviewIndex];
+
+    const categoryIcons = {
+      image: '🖼️', video: '🎬', audio: '🎵',
+      document: '📄', archive: '📦', code: '💻', file: '📎'
+    };
+    const icon = categoryIcons[file.category] || '📁';
+
+    previewFileIcon.textContent = icon;
+    previewFileName.textContent = file.name;
+    previewFileMeta.textContent = `${file.size_formatted} • ${file.mod_time_formatted}`;
+
+    const downloadUrl = `${file.url}?token=${encodeURIComponent(authToken)}`;
+    previewDownloadBtn.href = downloadUrl;
+    fallbackDownloadBtn.href = downloadUrl;
+
+    // Reset preview elements
+    previewCopyTextBtn.style.display = 'none';
+    previewImageContainer.style.display = 'none';
+    previewTextContainer.style.display = 'none';
+    previewVideoContainer.style.display = 'none';
+    previewAudioContainer.style.display = 'none';
+    previewPdfContainer.style.display = 'none';
+    previewFallbackContainer.style.display = 'none';
+    previewLoader.style.display = 'none';
+
+    // Pause any media playing
+    previewVideo.pause();
+    previewVideo.removeAttribute('src');
+    previewVideo.load();
+    previewAudio.pause();
+    previewAudio.removeAttribute('src');
+    previewAudio.load();
+    previewPdfFrame.src = '';
+
+    previewModal.classList.add('active');
+
+    const previewType = file.preview_type || 'none';
+
+    if (previewType === 'image') {
+      previewLoader.style.display = 'flex';
+      previewImageContainer.style.display = 'flex';
+      previewImage.onload = () => { previewLoader.style.display = 'none'; };
+      previewImage.onerror = () => {
+        previewLoader.style.display = 'none';
+        showFallbackPreview();
+      };
+      previewImage.src = downloadUrl;
+    } else if (previewType === 'text') {
+      previewLoader.style.display = 'flex';
+      previewTextContainer.style.display = 'flex';
+      try {
+        const res = await authFetch(downloadUrl);
+        if (!res.ok) throw new Error('Failed to load file text');
+        const text = await res.text();
+        currentLoadedText = text;
+
+        const maxChars = 200000;
+        let isTruncated = false;
+        let textToDisplay = text;
+        if (text.length > maxChars) {
+          textToDisplay = text.substring(0, maxChars);
+          isTruncated = true;
+        }
+
+        const lines = textToDisplay.split('\n');
+        const html = lines.map((line, idx) => `
+          <div class="code-line">
+            <span class="code-line-num">${idx + 1}</span>
+            <span class="code-line-text">${escapeHtml(line)}</span>
+          </div>
+        `).join('');
+
+        previewTextCode.innerHTML = html + (isTruncated ? `\n<div class="code-line"><span class="code-line-num">...</span><span class="code-line-text" style="color: var(--accent-cyan);">[Preview truncated. File exceeds 200 KB limit. Download file to view complete content.]</span></div>` : '');
+        previewCopyTextBtn.style.display = 'inline-flex';
+      } catch (err) {
+        previewTextCode.innerHTML = `<span style="color: var(--accent-red);">Failed to load text file content.</span>`;
+      } finally {
+        previewLoader.style.display = 'none';
+      }
+    } else if (previewType === 'video') {
+      previewVideoContainer.style.display = 'flex';
+      previewVideo.src = downloadUrl;
+    } else if (previewType === 'audio') {
+      previewAudioContainer.style.display = 'flex';
+      previewAudio.src = downloadUrl;
+    } else if (previewType === 'pdf') {
+      previewPdfContainer.style.display = 'flex';
+      previewPdfFrame.src = downloadUrl;
+    } else {
+      showFallbackPreview();
+    }
+  }
+
+  function showFallbackPreview() {
+    previewFallbackContainer.style.display = 'flex';
+  }
+
+  function closePreviewModal() {
+    previewModal.classList.remove('active');
+    previewVideo.pause();
+    previewVideo.removeAttribute('src');
+    previewAudio.pause();
+    previewAudio.removeAttribute('src');
+    previewPdfFrame.src = '';
+    currentPreviewIndex = -1;
+  }
+
+  function navigatePreview(dir) {
+    if (currentPreviewIndex === -1 || allFiles.length === 0) return;
+    let nextIndex = currentPreviewIndex + dir;
+    if (nextIndex < 0) nextIndex = allFiles.length - 1;
+    if (nextIndex >= allFiles.length) nextIndex = 0;
+    openPreviewModal(allFiles[nextIndex].name);
+  }
+
+  closePreviewBtn.addEventListener('click', closePreviewModal);
+  prevFileBtn.addEventListener('click', () => navigatePreview(-1));
+  nextFileBtn.addEventListener('click', () => navigatePreview(1));
+
+  previewModal.addEventListener('click', (e) => {
+    if (e.target === previewModal) closePreviewModal();
+  });
+
+  window.addEventListener('keydown', (e) => {
+    if (!previewModal.classList.contains('active')) return;
+    if (e.key === 'Escape') {
+      closePreviewModal();
+    } else if (e.key === 'ArrowLeft') {
+      navigatePreview(-1);
+    } else if (e.key === 'ArrowRight') {
+      navigatePreview(1);
+    }
+  });
+
+  previewCopyTextBtn.addEventListener('click', () => {
+    if (currentLoadedText) {
+      navigator.clipboard.writeText(currentLoadedText);
+      showToast('Code / Text content copied to clipboard!');
+    }
+  });
 
   // Delete File API Call
   async function deleteFile(filename) {

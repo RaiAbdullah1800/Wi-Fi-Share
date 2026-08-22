@@ -98,10 +98,35 @@ def get_file_category(filename):
         return 'document'
     elif ext in ['.zip', '.tar', '.gz', '.7z', '.rar', '.iso']:
         return 'archive'
-    elif ext in ['.py', '.js', '.html', '.css', '.json', '.c', '.cpp', '.sh', '.java']:
+    elif ext in ['.py', '.js', '.ts', '.jsx', '.tsx', '.html', '.css', '.json', '.c', '.cpp', '.h', '.sh', '.java', '.rs', '.go', '.sql', '.yml', '.yaml']:
         return 'code'
     else:
         return 'file'
+
+def get_preview_info(filename):
+    ext = os.path.splitext(filename)[1].lower()
+    image_exts = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg', '.bmp', '.ico']
+    text_exts = [
+        '.txt', '.md', '.json', '.csv', '.py', '.js', '.ts', '.jsx', '.tsx',
+        '.html', '.css', '.c', '.cpp', '.h', '.hpp', '.sh', '.java', '.rs',
+        '.go', '.php', '.xml', '.log', '.yml', '.yaml', '.ini', '.env', '.sql'
+    ]
+    audio_exts = ['.mp3', '.wav', '.ogg', '.flac', '.m4a', '.aac']
+    video_exts = ['.mp4', '.webm', '.ogv', '.mov', '.m4v']
+
+    if ext in image_exts:
+        return {"previewable": True, "preview_type": "image"}
+    elif ext in text_exts:
+        return {"previewable": True, "preview_type": "text"}
+    elif ext in audio_exts:
+        return {"previewable": True, "preview_type": "audio"}
+    elif ext in video_exts:
+        return {"previewable": True, "preview_type": "video"}
+    elif ext == '.pdf':
+        return {"previewable": True, "preview_type": "pdf"}
+    else:
+        return {"previewable": False, "preview_type": "none"}
+
 
 def clean_expired_states():
     now = time.time()
@@ -341,6 +366,7 @@ class RequestHandler(BaseHTTPRequestHandler):
                     full_path = os.path.join(STORAGE_DIR, entry)
                     if os.path.isfile(full_path):
                         stat = os.stat(full_path)
+                        prev_info = get_preview_info(entry)
                         files_info.append({
                             "name": entry,
                             "size": stat.st_size,
@@ -348,6 +374,8 @@ class RequestHandler(BaseHTTPRequestHandler):
                             "mod_time": stat.st_mtime,
                             "mod_time_formatted": datetime.fromtimestamp(stat.st_mtime).strftime("%b %d, %Y %H:%M"),
                             "category": get_file_category(entry),
+                            "previewable": prev_info["previewable"],
+                            "preview_type": prev_info["preview_type"],
                             "url": f"/shared_files/{urllib.parse.quote(entry)}"
                         })
             except Exception as e:

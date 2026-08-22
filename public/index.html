@@ -420,6 +420,98 @@
     </div>
   </div>
 
+  <!-- FILE PREVIEW LIGHTBOX / MODAL -->
+  <div class="modal-overlay" id="previewModal">
+    <div class="modal-card preview-modal-card">
+      <div class="preview-header">
+        <div class="preview-title-group">
+          <button class="nav-arrow-btn" id="prevFileBtn" title="Previous File (Left Arrow)">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+              <polyline points="15 18 9 12 15 6"></polyline>
+            </svg>
+          </button>
+          <span class="preview-icon" id="previewFileIcon">📁</span>
+          <div class="preview-info">
+            <h3 id="previewFileName" class="preview-filename">filename.ext</h3>
+            <span id="previewFileMeta" class="preview-meta">0 KB • Date</span>
+          </div>
+          <button class="nav-arrow-btn" id="nextFileBtn" title="Next File (Right Arrow)">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+              <polyline points="9 18 15 12 9 6"></polyline>
+            </svg>
+          </button>
+        </div>
+
+        <div class="preview-actions">
+          <button class="btn btn-secondary" id="previewCopyTextBtn" style="display: none;" title="Copy Code/Text">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+            </svg>
+            Copy Text
+          </button>
+          <a id="previewDownloadBtn" href="#" download class="btn btn-primary">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+              <polyline points="7 10 12 15 17 10"></polyline>
+              <line x1="12" y1="15" x2="12" y2="3"></line>
+            </svg>
+            Download
+          </a>
+          <button class="modal-close" id="closePreviewBtn">&times;</button>
+        </div>
+      </div>
+
+      <div class="preview-body" id="previewBody">
+        <!-- Image Preview -->
+        <div class="preview-content-box" id="previewImageContainer" style="display: none;">
+          <img id="previewImage" src="" alt="Preview Image">
+        </div>
+
+        <!-- Text / Code Preview -->
+        <div class="preview-content-box text-box" id="previewTextContainer" style="display: none;">
+          <div class="code-container" id="codeContainer">
+            <pre class="code-block"><code id="previewTextCode"></code></pre>
+          </div>
+        </div>
+
+        <!-- Video Preview -->
+        <div class="preview-content-box" id="previewVideoContainer" style="display: none;">
+          <video id="previewVideo" controls playsinline></video>
+        </div>
+
+        <!-- Audio Preview -->
+        <div class="preview-content-box audio-box" id="previewAudioContainer" style="display: none;">
+          <div class="audio-player-wrapper">
+            <div class="audio-icon-lg">🎵</div>
+            <audio id="previewAudio" controls></audio>
+          </div>
+        </div>
+
+        <!-- PDF Preview -->
+        <div class="preview-content-box pdf-box" id="previewPdfContainer" style="display: none;">
+          <iframe id="previewPdfFrame" src=""></iframe>
+        </div>
+
+        <!-- Fallback / Unsupported Preview -->
+        <div class="preview-content-box fallback-box" id="previewFallbackContainer" style="display: none;">
+          <div class="fallback-icon">📄</div>
+          <h4>No Inline Preview Available</h4>
+          <p>This file format cannot be rendered directly in the browser.</p>
+          <a id="fallbackDownloadBtn" href="#" download class="btn btn-primary" style="margin-top: 1rem;">
+            Download File
+          </a>
+        </div>
+
+        <!-- Loader overlay inside preview modal -->
+        <div class="preview-loader" id="previewLoader" style="display: none;">
+          <div class="spinner"></div>
+          <span>Loading Preview...</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Toast Notification -->
   <div class="toast-container" id="toastContainer"></div>
 
