@@ -15,36 +15,11 @@ from socketserver import ThreadingMixIn
 
 from config import PORT, BASE_DIR, STORAGE_DIR, PUBLIC_DIR, CONFIG_FILE, config, save_config
 from core.storage import get_local_ips, format_size, get_file_category, get_preview_info
-
-# Auth & Sessions State
-temp_passwords = {}
-sessions = {}
-# IP Access State
-pending_requests = {} # { "ip": { "device_name": "...", "requested_at": epoch } }
-approved_ips = {}     # { "ip": { "device_name": "...", "permissions": [...], "expires_at": epoch, "token": "..." } }
-
-# Shared in-memory clipboard text
-shared_clipboard = {
-    "text": "Welcome to Wi-Fi File & Text Share! Type text here to sync across devices.",
-    "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-}
-
-
-
-def clean_expired_states():
-    now = time.time()
-    # Clean temp passwords
-    expired_pass = [code for code, data in temp_passwords.items() if data['expires_at'] < now]
-    for code in expired_pass:
-        del temp_passwords[code]
-
-    # Clean IP approvals
-    expired_ip_list = [ip for ip, data in approved_ips.items() if data['expires_at'] < now]
-    for ip in expired_ip_list:
-        token = approved_ips[ip].get('token')
-        if token and token in sessions:
-            del sessions[token]
-        del approved_ips[ip]
+from core.clipboard import get_clipboard_data, set_clipboard_data
+from core.auth import (
+    temp_passwords, sessions, pending_requests, approved_ips,
+    clean_expired_states, get_auth_token, authenticate, generate_session_token
+)
 
 class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
     daemon_threads = True
@@ -73,51 +48,10 @@ class RequestHandler(BaseHTTPRequestHandler):
         self.send_json({"error": message}, status=status)
 
     def get_auth_token(self):
-        auth_header = self.headers.get('Authorization', '')
-        if auth_header.startswith('Bearer '):
-            return auth_header[7:].strip()
-        parsed = urllib.parse.urlparse(self.path)
-        params = urllib.parse.parse_qs(parsed.query)
-        if 'token' in params:
-            return params['token'][0]
-        return None
+        return get_auth_token(self)
 
     def authenticate(self, required_permission=None):
-        clean_expired_states()
-        token = self.get_auth_token()
-        session = None
-
-        # 1. Check Token Session
-        if token and token in sessions:
-            sess = sessions[token]
-            if not sess['expires_at'] or sess['expires_at'] > time.time():
-                session = sess
-            else:
-                del sessions[token]
-
-        # 2. Check Client IP Approval (Auto IP Whitelist Auth)
-        if not session:
-            client_ip = self.get_client_ip()
-            if client_ip in approved_ips:
-                ip_info = approved_ips[client_ip]
-                if ip_info['expires_at'] > time.time():
-                    session = {
-                        "role": "guest_ip",
-                        "permissions": ip_info["permissions"],
-                        "expires_at": ip_info["expires_at"],
-                        "device_name": ip_info["device_name"],
-                        "ip": client_ip
-                    }
-
-        if not session:
-            self.send_error_msg("Unauthorized. Authentication required.", status=401)
-            return None
-
-        if required_permission and required_permission not in session['permissions']:
-            self.send_error_msg(f"Forbidden. Missing '{required_permission}' permission.", status=403)
-            return None
-
-        return session
+        return authenticate(self, required_permission)
 
     def do_OPTIONS(self):
         self.send_response(200)
@@ -293,7 +227,7 @@ class RequestHandler(BaseHTTPRequestHandler):
             session = self.authenticate(required_permission='read')
             if not session:
                 return
-            self.send_json(shared_clipboard)
+            self.send_json(get_clipboard_data())
             return
 
         if path.startswith('/shared_files/'):
@@ -556,9 +490,8 @@ class RequestHandler(BaseHTTPRequestHandler):
             body = self.rfile.read(content_length)
             try:
                 data = json.loads(body.decode('utf-8'))
-                shared_clipboard['text'] = data.get('text', '')
-                shared_clipboard['updated_at'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                self.send_json({"status": "success", "clipboard": shared_clipboard})
+                updated_clipboard = set_clipboard_data(data.get('text', ''))
+                self.send_json({"status": "success", "clipboard": updated_clipboard})
             except Exception as e:
                 self.send_error_msg(f"Invalid JSON: {str(e)}", status=400)
             return
