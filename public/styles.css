@@ -521,7 +521,7 @@ body {
 /* File Grid */
 .files-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: 1.2rem;
 }
 
@@ -535,6 +535,8 @@ body {
   flex-direction: column;
   justify-content: space-between;
   transition: all 0.25s ease;
+  overflow: hidden;
+  box-sizing: border-box;
 }
 .file-card:hover {
   transform: translateY(-3px);
@@ -585,13 +587,30 @@ body {
 
 .file-actions {
   display: flex;
+  align-items: center;
   gap: 0.5rem;
   margin-top: 0.8rem;
+  width: 100%;
 }
 .file-actions .btn {
   flex: 1;
-  padding: 0.45rem 0.6rem;
+  min-width: 0;
+  padding: 0.45rem 0.5rem;
   font-size: 0.82rem;
+  white-space: nowrap;
+  gap: 0.35rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.file-actions .btn.icon-only-btn {
+  flex: 0 0 36px;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
 }
 
 /* Empty State */
