@@ -1219,4 +1219,16 @@ textarea#clipboardInput:focus {
   to { transform: rotate(360deg); }
 }
 
+.manager-section.highlight-section {
+  animation: sectionHighlight 1.5s ease-in-out;
+  border-radius: var(--radius-md);
+}
+
+@keyframes sectionHighlight {
+  0% { box-shadow: 0 0 0 2px var(--accent-cyan); background: rgba(56, 189, 248, 0.12); }
+  50% { box-shadow: 0 0 20px 5px var(--accent-cyan); background: rgba(56, 189, 248, 0.22); }
+  100% { box-shadow: none; background: transparent; }
+}
+
+
 

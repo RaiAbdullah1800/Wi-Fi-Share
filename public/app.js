@@ -394,14 +394,25 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // Manage Keys & Approvals Modal (Admin Only)
-  manageKeysBtn.addEventListener('click', openManagerModal);
-  pendingBellBtn.addEventListener('click', openManagerModal);
+  manageKeysBtn.addEventListener('click', () => openManagerModal());
+  pendingBellBtn.addEventListener('click', () => openManagerModal('pendingSection'));
 
-  function openManagerModal() {
+  function openManagerModal(targetSectionId = null) {
     keysModal.classList.add('active');
     loadPendingRequests();
     loadApprovedIps();
     loadActiveKeys();
+
+    if (targetSectionId) {
+      const el = document.getElementById(targetSectionId);
+      if (el) {
+        setTimeout(() => {
+          el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          el.classList.add('highlight-section');
+          setTimeout(() => el.classList.remove('highlight-section'), 2000);
+        }, 150);
+      }
+    }
   }
 
   closeKeysBtn.addEventListener('click', () => keysModal.classList.remove('active'));
