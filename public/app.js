@@ -877,12 +877,21 @@ document.addEventListener('DOMContentLoaded', () => {
     if (previewType === 'image') {
       previewLoader.style.display = 'flex';
       previewImageContainer.style.display = 'flex';
-      previewImage.onload = () => { previewLoader.style.display = 'none'; };
-      previewImage.onerror = () => {
+      try {
+        const res = await authFetch(downloadUrl);
+        if (!res.ok) throw new Error('Failed to fetch image');
+        const blob = await res.blob();
+        const objectUrl = URL.createObjectURL(blob);
+        previewImage.src = objectUrl;
+        previewImage.onload = () => { previewLoader.style.display = 'none'; };
+        previewImage.onerror = () => {
+          previewLoader.style.display = 'none';
+          showFallbackPreview();
+        };
+      } catch (err) {
         previewLoader.style.display = 'none';
         showFallbackPreview();
-      };
-      previewImage.src = downloadUrl;
+      }
     } else if (previewType === 'text') {
       previewLoader.style.display = 'flex';
       previewTextContainer.style.display = 'flex';

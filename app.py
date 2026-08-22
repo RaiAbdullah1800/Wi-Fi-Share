@@ -88,6 +88,9 @@ def format_size(size_in_bytes):
 
 def get_file_category(filename):
     ext = os.path.splitext(filename)[1].lower()
+    if not ext and filename.startswith('.'):
+        ext = filename.lower()
+
     if ext in ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg', '.bmp', '.ico']:
         return 'image'
     elif ext in ['.mp4', '.mkv', '.webm', '.avi', '.mov', '.wmv']:
@@ -98,18 +101,23 @@ def get_file_category(filename):
         return 'document'
     elif ext in ['.zip', '.tar', '.gz', '.7z', '.rar', '.iso']:
         return 'archive'
-    elif ext in ['.py', '.js', '.ts', '.jsx', '.tsx', '.html', '.css', '.json', '.c', '.cpp', '.h', '.sh', '.java', '.rs', '.go', '.sql', '.yml', '.yaml']:
+    elif ext in ['.py', '.js', '.ts', '.jsx', '.tsx', '.html', '.css', '.json', '.c', '.cpp', '.h', '.sh', '.java', '.rs', '.go', '.sql', '.yml', '.yaml', '.env', '.gitignore', '.gitkeep', '.dockerignore', '.ini', '.conf', '.config', '.log']:
         return 'code'
     else:
         return 'file'
 
 def get_preview_info(filename):
     ext = os.path.splitext(filename)[1].lower()
+    if not ext and filename.startswith('.'):
+        ext = filename.lower()
+
     image_exts = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg', '.bmp', '.ico']
     text_exts = [
         '.txt', '.md', '.json', '.csv', '.py', '.js', '.ts', '.jsx', '.tsx',
-        '.html', '.css', '.c', '.cpp', '.h', '.hpp', '.sh', '.java', '.rs',
-        '.go', '.php', '.xml', '.log', '.yml', '.yaml', '.ini', '.env', '.sql'
+        '.html', '.htm', '.css', '.c', '.cpp', '.h', '.hpp', '.sh', '.bash', '.zsh',
+        '.java', '.rs', '.go', '.php', '.xml', '.log', '.yml', '.yaml', '.ini',
+        '.env', '.sql', '.gitignore', '.gitkeep', '.dockerignore', '.babelrc',
+        '.eslintrc', '.editorconfig', '.conf', '.config', '.properties'
     ]
     audio_exts = ['.mp3', '.wav', '.ogg', '.flac', '.m4a', '.aac']
     video_exts = ['.mp4', '.webm', '.ogv', '.mov', '.m4v']
@@ -125,7 +133,11 @@ def get_preview_info(filename):
     elif ext == '.pdf':
         return {"previewable": True, "preview_type": "pdf"}
     else:
+        mime_type, _ = mimetypes.guess_type(filename)
+        if mime_type and (mime_type.startswith('text/') or mime_type in ['application/json', 'application/javascript', 'application/xml', 'application/x-sh']):
+            return {"previewable": True, "preview_type": "text"}
         return {"previewable": False, "preview_type": "none"}
+
 
 
 def clean_expired_states():
