@@ -375,6 +375,8 @@ class RequestHandler(BaseHTTPRequestHandler):
             files_info = []
             try:
                 for entry in sorted(os.listdir(STORAGE_DIR)):
+                    if entry == '.gitkeep':
+                        continue
                     full_path = os.path.join(STORAGE_DIR, entry)
                     if os.path.isfile(full_path):
                         stat = os.stat(full_path)
@@ -752,6 +754,9 @@ class RequestHandler(BaseHTTPRequestHandler):
             if not session:
                 return
             filename = urllib.parse.unquote(path[len('/api/files/'):])
+            if filename == '.gitkeep':
+                self.send_error_msg("Protected file cannot be deleted", status=403)
+                return
             file_path = os.path.abspath(os.path.join(STORAGE_DIR, filename))
             if not file_path.startswith(STORAGE_DIR) or not os.path.exists(file_path):
                 self.send_error_msg("File not found or access denied", status=404)
