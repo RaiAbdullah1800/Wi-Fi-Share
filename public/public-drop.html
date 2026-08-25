@@ -15,8 +15,10 @@
   <div class="bg-glow bg-glow-1"></div>
   <div class="bg-glow bg-glow-2"></div>
 
-  <div class="app-container" style="display: flex;">
-    <!-- Top Header -->
+  <!-- Full Width Main Container -->
+  <div class="app-container">
+    
+    <!-- Top Horizontal App Header -->
     <header class="app-header">
       <div class="logo-group">
         <div class="logo-icon cyan">
@@ -53,107 +55,154 @@
       </div>
     </header>
 
-    <!-- Main Content Grid -->
-    <main class="main-content" style="max-width: 1100px; margin: 0 auto; width: 100%; padding-bottom: 3rem;">
+    <!-- Main Content Area -->
+    <main class="main-content" style="max-width: 1200px; margin: 0 auto; width: 100%; padding-bottom: 3rem;">
       
-      <!-- CREATE PUBLIC DROP CARD -->
-      <section class="card public-shares-card" style="margin-bottom: 2rem;">
-        <div class="card-header">
-          <div>
-            <h2>📦 Upload New Public Share Drop</h2>
-            <p class="subtitle">Upload files and set a password. No account or login required!</p>
+      <!-- VIEW 1: PUBLIC FOLDERS & UPLOAD VIEW -->
+      <div id="publicFoldersView">
+        
+        <!-- CREATE PUBLIC DROP CARD -->
+        <section class="card public-shares-card" style="margin-bottom: 2rem;">
+          <div class="card-header">
+            <div>
+              <h2>📦 Upload New Public Share Drop</h2>
+              <p class="subtitle">Upload files and set a password. No account or login required!</p>
+            </div>
           </div>
-        </div>
 
-        <form id="publicUploadForm" style="display: flex; flex-direction: column; gap: 1.25rem; margin-top: 1rem;">
-          
-          <div class="upload-dropzone" id="dropzone" style="cursor: pointer; position: relative;">
-            <input type="file" id="publicDropFileInput" multiple style="display: none;" required>
-            <div class="dropzone-content">
-              <div class="upload-icon-wrapper cyan">
-                <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                  <polyline points="17 8 12 3 7 8"></polyline>
-                  <line x1="12" y1="3" x2="12" y2="15"></line>
-                </svg>
+          <form id="publicUploadForm" style="display: flex; flex-direction: column; gap: 1.25rem; margin-top: 1rem;">
+            
+            <div class="upload-dropzone" id="dropzone" style="cursor: pointer; position: relative;">
+              <input type="file" id="publicDropFileInput" multiple style="display: none;" required>
+              <div class="dropzone-content">
+                <div class="upload-icon-wrapper cyan">
+                  <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                    <polyline points="17 8 12 3 7 8"></polyline>
+                    <line x1="12" y1="3" x2="12" y2="15"></line>
+                  </svg>
+                </div>
+                <div class="dropzone-text">
+                  <h3 id="dropzoneTitle">Drag & Drop Files Here</h3>
+                  <p id="dropzoneSubtitle">or click to browse files from your computer / phone</p>
+                </div>
+                <button type="button" class="btn btn-primary cyan" id="browseFilesBtn">
+                  Choose Files
+                </button>
               </div>
-              <div class="dropzone-text">
-                <h3 id="dropzoneTitle">Drag & Drop Files Here</h3>
-                <p id="dropzoneSubtitle">or click to browse files from your computer / phone</p>
+              <div class="upload-progress-bar" id="uploadProgress"></div>
+            </div>
+
+            <div class="form-row" style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+              <div class="form-group align-left">
+                <label style="display: block; margin-bottom: 0.4rem; font-weight: 600; font-size: 0.85rem;">Folder Title / Note (Optional)</label>
+                <input type="text" id="publicDropTitle" placeholder="e.g. Project PDFs for Alex" required>
               </div>
-              <button type="button" class="btn btn-primary cyan" id="browseFilesBtn">
-                Choose Files
-              </button>
-            </div>
-            <div class="upload-progress-bar" id="uploadProgress"></div>
-          </div>
 
-          <div class="form-row" style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
-            <div class="form-group align-left">
-              <label style="display: block; margin-bottom: 0.4rem; font-weight: 600; font-size: 0.85rem;">Drop Title / Note (Optional)</label>
-              <input type="text" id="publicDropTitle" placeholder="e.g. Project PDFs for Alex" required>
+              <div class="form-group align-left">
+                <label style="display: block; margin-bottom: 0.4rem; font-weight: 600; font-size: 0.85rem;">Set Access Password (Required for downloaders)</label>
+                <input type="password" id="publicDropPassword" placeholder="Enter custom password..." required>
+              </div>
             </div>
 
-            <div class="form-group align-left">
-              <label style="display: block; margin-bottom: 0.4rem; font-weight: 600; font-size: 0.85rem;">Set Access Password (Required for downloaders)</label>
-              <input type="password" id="publicDropPassword" placeholder="Enter custom password..." required>
+            <div class="expiry-warning-banner">
+              ⏱️ <strong>Auto-Deletion Notice:</strong> This share drop and all uploaded files will automatically self-destruct from the server <strong>30 minutes</strong> after creation.
+            </div>
+
+            <button type="submit" class="btn btn-primary cyan w-full" style="padding: 0.85rem; font-size: 1rem;">
+              🚀 Create & Publish Public Drop
+            </button>
+          </form>
+        </section>
+
+        <!-- ACTIVE PUBLIC FOLDERS GRID SECTION -->
+        <section class="card public-shares-card">
+          <div class="card-header">
+            <div>
+              <h2>📁 Active Public Folders</h2>
+              <p class="subtitle">Click on any folder to unlock and view its contents like a file system</p>
+            </div>
+            <button class="btn btn-secondary" id="refreshPublicListBtn">
+              🔄 Refresh List
+            </button>
+          </div>
+
+          <div class="public-folders-grid" id="publicFoldersGrid"></div>
+
+          <div class="empty-state" id="publicEmptyState" style="display: none;">
+            <div class="empty-icon">📂</div>
+            <h3>No active public folders</h3>
+            <p>Upload a file above to create the first 30-minute public share folder!</p>
+          </div>
+        </section>
+      </div>
+
+      <!-- VIEW 2: FILE SYSTEM FOLDER EXPLORER VIEW (WHEN A FOLDER IS OPENED) -->
+      <div id="folderExplorerView" style="display: none;">
+        
+        <div class="folder-explorer-nav" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; flex-wrap: wrap; gap: 1rem;">
+          <div style="display: flex; align-items: center; gap: 0.8rem;">
+            <button class="btn btn-secondary" id="backToFoldersBtn">
+              ⬅️ Back to All Folders
+            </button>
+            <div class="breadcrumb-display" style="display: flex; align-items: center; gap: 0.5rem; font-weight: 700; font-size: 1.15rem; color: var(--text-main);">
+              <span style="color: var(--accent-cyan);">📦 Public Drops</span>
+              <span style="opacity: 0.5;">/</span>
+              <span id="explorerFolderName">📁 Folder Name</span>
             </div>
           </div>
 
-          <div class="expiry-warning-banner">
-            ⏱️ <strong>Auto-Deletion Notice:</strong> This share drop and all uploaded files will automatically self-destruct from the server <strong>30 minutes</strong> after creation.
+          <div style="display: flex; align-items: center; gap: 0.8rem;">
+            <span class="timer-badge" id="explorerTimerBadge">⏱️ 30:00</span>
+            <button class="btn btn-secondary" id="lockFolderBtn">🔒 Lock Folder</button>
           </div>
-
-          <button type="submit" class="btn btn-primary cyan w-full" style="padding: 0.85rem; font-size: 1rem;">
-            🚀 Create & Publish Public Drop
-          </button>
-        </form>
-      </section>
-
-      <!-- ACTIVE PUBLIC DROPS SECTION -->
-      <section class="card public-shares-card">
-        <div class="card-header">
-          <div>
-            <h2>🔥 Active Public Share Drops</h2>
-            <p class="subtitle">Public drops currently available on this Wi-Fi network</p>
-          </div>
-          <button class="btn btn-secondary" id="refreshPublicListBtn">
-            🔄 Refresh List
-          </button>
         </div>
 
-        <div class="public-drops-grid" id="publicDropsGrid"></div>
+        <div class="card explorer-card">
+          <div class="card-header" style="border-bottom: 1px solid var(--border-color); padding-bottom: 1rem; margin-bottom: 1.5rem;">
+            <div>
+              <h3 id="explorerHeaderTitle" style="font-size: 1.25rem; font-weight: 700;">📁 Folder Contents</h3>
+              <p class="subtitle" id="explorerHeaderMeta">0 File(s) • 0 KB</p>
+            </div>
+          </div>
 
-        <div class="empty-state" id="publicEmptyState" style="display: none;">
-          <div class="empty-icon">📦</div>
-          <h3>No active public share drops</h3>
-          <p>Upload a file above to create the first 30-minute public share drop!</p>
+          <div class="explorer-files-list" id="explorerFilesList"></div>
         </div>
-      </section>
+
+      </div>
+
     </main>
   </div>
 
-  <!-- UNLOCK PUBLIC SHARE DROP MODAL -->
-  <div class="modal-overlay" id="publicUnlockModal">
+  <!-- PASSWORD PROMPT POPUP MODAL -->
+  <div class="modal-overlay" id="folderPasswordModal">
     <div class="modal-card">
-      <button class="modal-close" id="closePublicUnlockBtn">&times;</button>
+      <button class="modal-close" id="closePasswordModalBtn">&times;</button>
       <div class="modal-header align-left">
-        <h2 id="unlockDropTitle">📦 Public Share Drop</h2>
-        <p id="unlockDropMeta">Protected Drop • Password required</p>
-      </div>
-
-      <form id="publicUnlockForm" class="unlock-form" style="margin-top: 1rem;">
-        <div class="input-group">
-          <input type="password" id="unlockDropPassword" placeholder="Enter password set by uploader..." required autofocus>
-          <button type="submit" class="btn btn-primary cyan">Unlock Files</button>
+        <div style="display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.4rem;">
+          <div style="font-size: 1.8rem;">🔒</div>
+          <div>
+            <h2 style="font-size: 1.25rem; font-weight: 700;" id="promptFolderTitle">Protected Public Folder</h2>
+            <p style="font-size: 0.85rem; color: var(--text-muted);">Enter password to open folder contents</p>
+          </div>
         </div>
-        <div class="login-error" id="unlockDropError"></div>
-      </form>
-
-      <div class="unlocked-files-container" id="unlockedFilesContainer" style="display: none; margin-top: 1.5rem; text-align: left;">
-        <h4 style="margin-bottom: 0.8rem; font-size: 0.95rem; color: var(--accent-green);">✅ Files Unlocked:</h4>
-        <div class="unlocked-files-list" id="unlockedFilesList"></div>
       </div>
+
+      <form id="folderPasswordForm" style="margin-top: 1rem;">
+        <div class="form-group align-left" style="margin-bottom: 1rem;">
+          <label style="display: block; margin-bottom: 0.4rem; font-weight: 600; font-size: 0.85rem;">Folder Password</label>
+          <input type="password" id="promptFolderPassword" placeholder="Enter password set by uploader..." required autofocus style="width: 100%;">
+        </div>
+
+        <div class="login-error" id="promptFolderError" style="display: none; margin-bottom: 1rem;"></div>
+
+        <div style="display: flex; justify-content: flex-end; gap: 0.8rem;">
+          <button type="button" class="btn btn-secondary" id="cancelPasswordBtn">Cancel</button>
+          <button type="submit" class="btn btn-primary cyan">
+            📂 Unlock & Open Folder
+          </button>
+        </div>
+      </form>
     </div>
   </div>
 
