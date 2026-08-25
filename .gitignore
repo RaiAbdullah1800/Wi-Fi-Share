@@ -9,6 +9,8 @@ config.json
 # Storage folder contents (except .gitkeep)
 shared_storage/*
 !shared_storage/.gitkeep
+public_shares/*
+!public_shares/.gitkeep
 
 # System & IDE temp files
 .DS_Store

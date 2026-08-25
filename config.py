@@ -4,11 +4,13 @@ import json
 PORT = 5000
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 STORAGE_DIR = os.path.join(BASE_DIR, "shared_storage")
+PUBLIC_SHARES_DIR = os.path.join(BASE_DIR, "public_shares")
 PUBLIC_DIR = os.path.join(BASE_DIR, "public")
 CONFIG_FILE = os.path.join(BASE_DIR, "config.json")
 
 # Ensure required directories exist
 os.makedirs(STORAGE_DIR, exist_ok=True)
+os.makedirs(PUBLIC_SHARES_DIR, exist_ok=True)
 os.makedirs(PUBLIC_DIR, exist_ok=True)
 
 # Default Config
