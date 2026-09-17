@@ -1,1356 +1,720 @@
 document.addEventListener('DOMContentLoaded', () => {
-  // Auth state
-  let authToken = localStorage.getItem('wifi_share_token') || '';
-  let userRole = '';
-  let userPermissions = [];
-  let detectedClientIp = '';
-  let pollingInterval = null;
+  // Application State
+  let activeDrops = [];
+  let currentFilter = 'all';
+  let unlockedDropsCache = {}; // { drop_id: unlockedData }
+  let activePromptDropId = null;
+  let serverPrimaryUrl = window.location.origin;
+  let qrcodeInstance = null;
 
-  // DOM Elements
-  const loginOverlay = document.getElementById('loginOverlay');
-  const loginFormCard = document.getElementById('loginFormCard');
-  const requestIpCard = document.getElementById('requestIpCard');
-  const waitingIpCard = document.getElementById('waitingIpCard');
-
-  const loginForm = document.getElementById('loginForm');
-  const loginPassword = document.getElementById('loginPassword');
-  const loginError = document.getElementById('loginError');
-
-  const showRequestIpBtn = document.getElementById('showRequestIpBtn');
-  const cancelRequestBtn = document.getElementById('cancelRequestBtn');
-  const requestIpForm = document.getElementById('requestIpForm');
-  const deviceNameInput = document.getElementById('deviceNameInput');
-  const clientIpDisplay = document.getElementById('clientIpDisplay');
-
-  const waitingDeviceName = document.getElementById('waitingDeviceName');
-  const waitingIpDisplay = document.getElementById('waitingIpDisplay');
-  const cancelWaitingBtn = document.getElementById('cancelWaitingBtn');
-
-  const appContainer = document.getElementById('appContainer');
-  const roleBadge = document.getElementById('roleBadge');
-  const roleText = document.getElementById('roleText');
-  const logoutBtn = document.getElementById('logoutBtn');
-  const manageKeysBtn = document.getElementById('manageKeysBtn');
-
-  const pendingBellBtn = document.getElementById('pendingBellBtn');
-  const pendingCountBadge = document.getElementById('pendingCountBadge');
-
+  // DOM References - Headers & Nav
   const networkIp = document.getElementById('networkIp');
-  const copyIpBtn = document.getElementById('copyIpBtn');
-  const showQrBtn = document.getElementById('showQrBtn');
+  const openQrBtn = document.getElementById('openQrBtn');
+  const tabBtnFiles = document.getElementById('tabBtnFiles');
+  const tabBtnText = document.getElementById('tabBtnText');
+  const filesTab = document.getElementById('files-tab');
+  const textTab = document.getElementById('text-tab');
+
+  // DOM References - File Drop Form
+  const fileDropForm = document.getElementById('fileDropForm');
+  const dropzone = document.getElementById('dropzone');
+  const fileDropInput = document.getElementById('fileDropInput');
+  const browseFilesBtn = document.getElementById('browseFilesBtn');
+  const dropzoneTitle = document.getElementById('dropzoneTitle');
+  const dropzoneSubtitle = document.getElementById('dropzoneSubtitle');
+  const uploadProgressBar = document.getElementById('uploadProgressBar');
+  const fileDropTitle = document.getElementById('fileDropTitle');
+  const fileDropPassword = document.getElementById('fileDropPassword');
+  const fileDropLifetime = document.getElementById('fileDropLifetime');
+  const submitFileDropBtn = document.getElementById('submitFileDropBtn');
+
+  // DOM References - Text Drop Form
+  const textDropForm = document.getElementById('textDropForm');
+  const textDropContent = document.getElementById('textDropContent');
+  const textDropTitle = document.getElementById('textDropTitle');
+  const textDropPassword = document.getElementById('textDropPassword');
+  const textDropLifetime = document.getElementById('textDropLifetime');
+  const textDropBurnAfterRead = document.getElementById('textDropBurnAfterRead');
+  const charCountDisplay = document.getElementById('charCountDisplay');
+  const lineCountDisplay = document.getElementById('lineCountDisplay');
+  const submitTextDropBtn = document.getElementById('submitTextDropBtn');
+
+  // DOM References - Feed & Filters
+  const dropsGrid = document.getElementById('dropsGrid');
+  const dropsEmptyState = document.getElementById('dropsEmptyState');
+  const refreshDropsBtn = document.getElementById('refreshDropsBtn');
+  const totalDropsCount = document.getElementById('totalDropsCount');
+  const filesDropsCount = document.getElementById('filesDropsCount');
+  const textDropsCount = document.getElementById('textDropsCount');
+  const filterButtons = document.querySelectorAll('.filter-btn');
+
+  // DOM References - Unlock Modal
+  const unlockModal = document.getElementById('unlockModal');
+  const closeUnlockModalBtn = document.getElementById('closeUnlockModalBtn');
+  const cancelUnlockBtn = document.getElementById('cancelUnlockBtn');
+  const unlockForm = document.getElementById('unlockForm');
+  const unlockModalIcon = document.getElementById('unlockModalIcon');
+  const unlockModalTitle = document.getElementById('unlockModalTitle');
+  const unlockModalSubtitle = document.getElementById('unlockModalSubtitle');
+  const unlockPassword = document.getElementById('unlockPassword');
+  const unlockErrorBanner = document.getElementById('unlockErrorBanner');
+
+  // DOM References - File Folder Modal
+  const filesViewModal = document.getElementById('filesViewModal');
+  const closeFilesViewBtn = document.getElementById('closeFilesViewBtn');
+  const unlockedFolderTitle = document.getElementById('unlockedFolderTitle');
+  const unlockedFolderMeta = document.getElementById('unlockedFolderMeta');
+  const unlockedFolderTimer = document.getElementById('unlockedFolderTimer');
+  const unlockedFilesList = document.getElementById('unlockedFilesList');
+  const lockFolderNowBtn = document.getElementById('lockFolderNowBtn');
+
+  // DOM References - Text View Modal
+  const textViewModal = document.getElementById('textViewModal');
+  const closeTextViewBtn = document.getElementById('closeTextViewBtn');
+  const unlockedTextTitle = document.getElementById('unlockedTextTitle');
+  const unlockedTextMeta = document.getElementById('unlockedTextMeta');
+  const unlockedTextTimer = document.getElementById('unlockedTextTimer');
+  const unlockedTextContent = document.getElementById('unlockedTextContent');
+  const burnAlertBanner = document.getElementById('burnAlertBanner');
+  const copyNoteContentBtn = document.getElementById('copyNoteContentBtn');
+
+  // DOM References - QR Code Modal
   const qrModal = document.getElementById('qrModal');
   const closeQrBtn = document.getElementById('closeQrBtn');
+  const qrcodeDiv = document.getElementById('qrcode');
   const modalUrlDisplay = document.getElementById('modalUrlDisplay');
-  const copyModalUrlBtn = document.getElementById('copyModalUrlBtn');
-  const qrcodeContainer = document.getElementById('qrcode');
+  const copyUrlBtn = document.getElementById('copyUrlBtn');
 
-  const keysModal = document.getElementById('keysModal');
-  const closeKeysBtn = document.getElementById('closeKeysBtn');
-  const pendingRequestsTbody = document.getElementById('pendingRequestsTbody');
-  const approvedIpsTbody = document.getElementById('approvedIpsTbody');
-
-  const generatePassForm = document.getElementById('generatePassForm');
-  const keyLabel = document.getElementById('keyLabel');
-  const keyDuration = document.getElementById('keyDuration');
-  const keyPermission = document.getElementById('keyPermission');
-  const generatedKeyBox = document.getElementById('generatedKeyBox');
-  const generatedKeyCode = document.getElementById('generatedKeyCode');
-  const copyGeneratedCodeBtn = document.getElementById('copyGeneratedCodeBtn');
-  const activeKeysTbody = document.getElementById('activeKeysTbody');
-  const changeAdminPassForm = document.getElementById('changeAdminPassForm');
-  const newAdminPass = document.getElementById('newAdminPass');
-
-  const tabBtns = document.querySelectorAll('.tab-btn');
-  const tabContents = document.querySelectorAll('.tab-content');
-
-  const dropzone = document.getElementById('dropzone');
-  const fileInput = document.getElementById('fileInput');
-  const uploadProgress = document.getElementById('uploadProgress');
-  const filesGrid = document.getElementById('filesGrid');
-  const emptyState = document.getElementById('emptyState');
-  const fileCountBadge = document.getElementById('fileCountBadge');
-  const searchInput = document.getElementById('searchInput');
-  const readOnlyBanner = document.getElementById('readOnlyBanner');
-
-  const clipboardInput = document.getElementById('clipboardInput');
-  const saveClipboardBtn = document.getElementById('saveClipboardBtn');
-  const copyClipboardBtn = document.getElementById('copyClipboardBtn');
-  const lastSyncTime = document.getElementById('lastSyncTime');
-
-  let currentPrimaryUrl = '';
-  let allFiles = [];
-  let currentPreviewIndex = -1;
-  let currentLoadedText = '';
-
-  // Preview Modal Elements
-  const previewModal = document.getElementById('previewModal');
-  const closePreviewBtn = document.getElementById('closePreviewBtn');
-  const prevFileBtn = document.getElementById('prevFileBtn');
-  const nextFileBtn = document.getElementById('nextFileBtn');
-  const previewFileIcon = document.getElementById('previewFileIcon');
-  const previewFileName = document.getElementById('previewFileName');
-  const previewFileMeta = document.getElementById('previewFileMeta');
-  const previewCopyTextBtn = document.getElementById('previewCopyTextBtn');
-  const previewDownloadBtn = document.getElementById('previewDownloadBtn');
-
-  const previewImageContainer = document.getElementById('previewImageContainer');
-  const previewImage = document.getElementById('previewImage');
-  const previewTextContainer = document.getElementById('previewTextContainer');
-  const previewTextCode = document.getElementById('previewTextCode');
-  const previewVideoContainer = document.getElementById('previewVideoContainer');
-  const previewVideo = document.getElementById('previewVideo');
-  const previewAudioContainer = document.getElementById('previewAudioContainer');
-  const previewAudio = document.getElementById('previewAudio');
-  const previewPdfContainer = document.getElementById('previewPdfContainer');
-  const previewPdfFrame = document.getElementById('previewPdfFrame');
-  const previewFallbackContainer = document.getElementById('previewFallbackContainer');
-  const fallbackDownloadBtn = document.getElementById('fallbackDownloadBtn');
-  const previewLoader = document.getElementById('previewLoader');
-
-  // Helper fetch wrapper with Bearer token
-  async function authFetch(url, options = {}) {
-    options.headers = options.headers || {};
-    if (authToken) {
-      options.headers['Authorization'] = `Bearer ${authToken}`;
-    }
-    const response = await fetch(url, options);
-    if (response.status === 401) {
-      handleLogout();
-    }
-    return response;
-  }
-
-  // Initial Check
-  checkAuth();
-
-  async function checkAuth() {
-    fetchServerInfo(); // Public IP info
-    await checkIpRequestStatus(); // Check if this client IP is pending or approved
-
-    if (!authToken) {
-      showLoginScreen();
-      return;
-    }
-
-    try {
-      const res = await authFetch('/api/auth/status');
-      if (res.ok) {
-        const data = await res.json();
-        userRole = data.role;
-        userPermissions = data.permissions;
-        showAppScreen();
-      } else {
-        showLoginScreen();
-      }
-    } catch (err) {
-      showLoginScreen();
-    }
-  }
-
-  // Check IP Request Status (Used on page load and guest polling)
-  async function checkIpRequestStatus() {
-    try {
-      const res = await fetch('/api/access/request-status');
-      if (!res.ok) return;
-      const data = await res.json();
-      detectedClientIp = data.client_ip || '';
-      clientIpDisplay.textContent = detectedClientIp;
-
-      if (data.status === 'approved' && data.token) {
-        authToken = data.token;
-        userRole = 'guest_ip';
-        userPermissions = data.permissions;
-        localStorage.setItem('wifi_share_token', authToken);
-        stopPolling();
-        showAppScreen();
-        showToast('IP Access Approved! Logged in automatically.');
-      } else if (data.status === 'pending') {
-        waitingDeviceName.textContent = data.device_name || 'Device';
-        waitingIpDisplay.textContent = detectedClientIp;
-        showWaitingCard();
-        startPolling();
-      }
-    } catch (err) {
-      console.error('Error checking IP status:', err);
-    }
-  }
-
-  function startPolling() {
-    if (pollingInterval) return;
-    pollingInterval = setInterval(checkIpRequestStatus, 2000);
-  }
-
-  function stopPolling() {
-    if (pollingInterval) {
-      clearInterval(pollingInterval);
-      pollingInterval = null;
-    }
-  }
-
-  // Login Form Submission (Password / Temp Passcode)
-  loginForm.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    loginError.textContent = '';
-    const password = loginPassword.value.trim();
-    if (!password) return;
-
-    try {
-      const res = await fetch('/api/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password })
-      });
-      const data = await res.json();
-
-      if (res.ok && data.status === 'success') {
-        authToken = data.token;
-        userRole = data.role;
-        userPermissions = data.permissions;
-        localStorage.setItem('wifi_share_token', authToken);
-        loginPassword.value = '';
-        stopPolling();
-        showAppScreen();
-        showToast(`Logged in as ${userRole.toUpperCase()}`);
-      } else {
-        loginError.textContent = data.error || 'Invalid password';
-      }
-    } catch (err) {
-      loginError.textContent = 'Server connection error';
-    }
-  });
-
-  // Request IP Access Button Handlers
-  showRequestIpBtn.addEventListener('click', () => {
-    loginFormCard.style.display = 'none';
-    requestIpCard.style.display = 'block';
-    waitingIpCard.style.display = 'none';
-  });
-
-  cancelRequestBtn.addEventListener('click', () => {
-    requestIpCard.style.display = 'none';
-    loginFormCard.style.display = 'block';
-    waitingIpCard.style.display = 'none';
-  });
-
-  requestIpForm.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const device_name = deviceNameInput.value.trim();
-    if (!device_name) return;
-
-    try {
-      const res = await fetch('/api/access/request', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ device_name })
-      });
-      const data = await res.json();
-      if (res.ok && data.status === 'pending') {
-        waitingDeviceName.textContent = device_name;
-        waitingIpDisplay.textContent = data.client_ip;
-        showWaitingCard();
-        startPolling();
-        showToast('Access request sent to Admin!');
-      } else {
-        showToast(data.error || 'Request failed', true);
-      }
-    } catch (err) {
-      showToast('Error sending access request', true);
-    }
-  });
-
-  cancelWaitingBtn.addEventListener('click', () => {
-    stopPolling();
-    waitingIpCard.style.display = 'none';
-    loginFormCard.style.display = 'block';
-  });
-
-  function showLoginScreen() {
-    loginOverlay.classList.add('active');
-    appContainer.style.display = 'none';
-  }
-
-  function showWaitingCard() {
-    loginOverlay.classList.add('active');
-    appContainer.style.display = 'none';
-    loginFormCard.style.display = 'none';
-    requestIpCard.style.display = 'none';
-    waitingIpCard.style.display = 'block';
-  }
-
-  function showAppScreen() {
-    loginOverlay.classList.remove('active');
-    appContainer.style.display = 'block';
-
-    if (userRole === 'admin') {
-      roleBadge.className = 'user-role-badge admin';
-      roleText.textContent = '👑 Admin';
-      manageKeysBtn.style.display = 'inline-flex';
-      pendingBellBtn.style.display = 'inline-flex';
-      loadPendingRequests();
-    } else {
-      roleBadge.className = 'user-role-badge guest';
-      const isReadOnly = !userPermissions.includes('write');
-      roleText.textContent = isReadOnly ? '👁️ Read-Only Guest' : '✏️ Read & Write Guest';
-      manageKeysBtn.style.display = 'none';
-      pendingBellBtn.style.display = 'none';
-    }
-
-    const isWriteAllowed = userPermissions.includes('write');
-    document.querySelectorAll('.write-only').forEach(el => {
-      el.style.display = isWriteAllowed ? '' : 'none';
-    });
-    readOnlyBanner.style.display = isWriteAllowed ? 'none' : 'block';
-    clipboardInput.readOnly = !isWriteAllowed;
-
-    loadFilesList();
-    loadClipboardText();
-  }
-
-  // Logout Handler
-  logoutBtn.addEventListener('click', handleLogout);
-  function handleLogout() {
-    stopPolling();
-    if (authToken) {
-      fetch('/api/logout', {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${authToken}` }
-      }).catch(() => {});
-    }
-    authToken = '';
-    userRole = '';
-    userPermissions = [];
-    localStorage.removeItem('wifi_share_token');
-    loginFormCard.style.display = 'block';
-    requestIpCard.style.display = 'none';
-    waitingIpCard.style.display = 'none';
-    showLoginScreen();
-  }
-
-  // Auto-refresh files & clipboard & pending requests
-  setInterval(() => {
-    if (authToken) {
-      loadFilesList(true);
-      loadClipboardText(true);
-      if (userRole === 'admin') {
-        loadPendingRequests(true);
-      }
-    }
-  }, 3000);
-
-  // Tab Switching
-  tabBtns.forEach(btn => {
-    btn.addEventListener('click', () => {
-      const targetTab = btn.getAttribute('data-tab');
-      tabBtns.forEach(b => b.classList.remove('active'));
-      tabContents.forEach(c => c.classList.remove('active'));
-
-      btn.classList.add('active');
-      document.getElementById(targetTab).classList.add('active');
-    });
-  });
-
-  // Fetch Public Network Info
+  // --- 1. NETWORK INFO ---
   async function fetchServerInfo() {
     try {
       const res = await fetch('/api/info');
-      const data = await res.json();
-      currentPrimaryUrl = data.primary_url;
-      detectedClientIp = data.your_client_ip;
-      clientIpDisplay.textContent = detectedClientIp;
-      networkIp.textContent = `${data.primary_ip}:${data.port}`;
-      modalUrlDisplay.textContent = currentPrimaryUrl;
-
-      qrcodeContainer.innerHTML = '';
-      if (window.QRCode) {
-        new QRCode(qrcodeContainer, {
-          text: currentPrimaryUrl,
-          width: 180,
-          height: 180,
-          colorDark : "#0b0f19",
-          colorLight : "#ffffff",
-          correctLevel : QRCode.CorrectLevel.H
-        });
-      }
-    } catch (err) {
-      networkIp.textContent = 'Offline / Error';
-    }
-  }
-
-  copyIpBtn.addEventListener('click', () => {
-    if (currentPrimaryUrl) {
-      navigator.clipboard.writeText(currentPrimaryUrl);
-      showToast('Address copied to clipboard!');
-    }
-  });
-
-  showQrBtn.addEventListener('click', () => qrModal.classList.add('active'));
-  closeQrBtn.addEventListener('click', () => qrModal.classList.remove('active'));
-  qrModal.addEventListener('click', (e) => { if (e.target === qrModal) qrModal.classList.remove('active'); });
-  copyModalUrlBtn.addEventListener('click', () => {
-    if (currentPrimaryUrl) {
-      navigator.clipboard.writeText(currentPrimaryUrl);
-      showToast('URL copied to clipboard!');
-    }
-  });
-
-  // Manage Keys & Approvals Modal (Admin Only)
-  manageKeysBtn.addEventListener('click', () => openManagerModal());
-  pendingBellBtn.addEventListener('click', () => openManagerModal('pendingSection'));
-
-  function openManagerModal(targetSectionId = null) {
-    keysModal.classList.add('active');
-    loadPendingRequests();
-    loadApprovedIps();
-    loadActiveKeys();
-
-    if (targetSectionId) {
-      const el = document.getElementById(targetSectionId);
-      if (el) {
-        setTimeout(() => {
-          el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-          el.classList.add('highlight-section');
-          setTimeout(() => el.classList.remove('highlight-section'), 2000);
-        }, 150);
-      }
-    }
-  }
-
-  closeKeysBtn.addEventListener('click', () => keysModal.classList.remove('active'));
-  keysModal.addEventListener('click', (e) => { if (e.target === keysModal) keysModal.classList.remove('active'); });
-
-  // Load Pending IP Requests
-  async function loadPendingRequests(isSilent = false) {
-    if (userRole !== 'admin') return;
-    try {
-      const res = await authFetch('/api/access/pending');
-      if (!res.ok) return;
-      const data = await res.json();
-      const list = data.pending_requests || [];
-      pendingCountBadge.textContent = list.length;
-
-      pendingRequestsTbody.innerHTML = '';
-      if (list.length === 0) {
-        pendingRequestsTbody.innerHTML = '<tr><td colspan="6" class="text-center" style="color: var(--text-muted);">No pending access requests</td></tr>';
-        return;
-      }
-
-      list.forEach(item => {
-        const tr = document.createElement('tr');
-        tr.innerHTML = `
-          <td><strong>${escapeHtml(item.device_name)}</strong></td>
-          <td><code>${escapeHtml(item.ip)}</code></td>
-          <td>${item.requested_at_formatted}</td>
-          <td>
-            <select class="req-duration">
-              <option value="15">15 Mins</option>
-              <option value="30">30 Mins</option>
-              <option value="60" selected>1 Hour</option>
-              <option value="360">6 Hours</option>
-              <option value="720">12 Hours</option>
-              <option value="1440">24 Hours</option>
-            </select>
-          </td>
-          <td>
-            <select class="req-perm">
-              <option value="read_only">👁️ Read Only</option>
-              <option value="read_write" selected>✏️ Read & Write</option>
-              <option value="full_access">⚡ Full Guest</option>
-            </select>
-          </td>
-          <td>
-            <div style="display: flex; gap: 4px;">
-              <button class="btn btn-primary approve-btn" style="padding: 2px 8px; font-size: 0.75rem;">Approve</button>
-              <button class="btn btn-danger reject-btn" style="padding: 2px 8px; font-size: 0.75rem;">Reject</button>
-            </div>
-          </td>
-        `;
-
-        const approveBtn = tr.querySelector('.approve-btn');
-        const rejectBtn = tr.querySelector('.reject-btn');
-        const durationSelect = tr.querySelector('.req-duration');
-        const permSelect = tr.querySelector('.req-perm');
-
-        approveBtn.addEventListener('click', () => approveIpRequest(item.ip, durationSelect.value, permSelect.value));
-        rejectBtn.addEventListener('click', () => rejectIpRequest(item.ip));
-
-        pendingRequestsTbody.appendChild(tr);
-      });
-    } catch (err) {
-      if (!isSilent) console.error('Failed to load pending requests:', err);
-    }
-  }
-
-  async function approveIpRequest(ip, duration_minutes, access_type) {
-    try {
-      const res = await authFetch('/api/access/approve', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ip, duration_minutes: parseInt(duration_minutes), access_type })
-      });
-      const data = await res.json();
       if (res.ok) {
-        showToast(`Approved IP ${ip} (${duration_minutes}m limit)`);
-        loadPendingRequests();
-        loadApprovedIps();
-      } else {
-        showToast(data.error || 'Approval failed', true);
+        const data = await res.json();
+        const primaryIp = data.primary_ip || window.location.hostname;
+        const port = data.port || window.location.port || 5000;
+        serverPrimaryUrl = `http://${primaryIp}:${port}`;
+        if (networkIp) networkIp.textContent = `${primaryIp}:${port}`;
+        if (modalUrlDisplay) modalUrlDisplay.textContent = serverPrimaryUrl;
       }
     } catch (err) {
-      showToast('Error approving IP request', true);
+      if (networkIp) networkIp.textContent = window.location.host;
     }
   }
 
-  async function rejectIpRequest(ip) {
-    try {
-      const res = await authFetch('/api/access/reject', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ip })
-      });
-      if (res.ok) {
-        showToast(`Rejected request from ${ip}`);
-        loadPendingRequests();
-      }
-    } catch (err) {
-      showToast('Error rejecting request', true);
-    }
-  }
+  fetchServerInfo();
 
-  // Load Active Approved IPs
-  async function loadApprovedIps() {
-    if (userRole !== 'admin') return;
-    try {
-      const res = await authFetch('/api/access/approved-ips');
-      if (!res.ok) return;
-      const data = await res.json();
-      const list = data.approved_ips || [];
-
-      approvedIpsTbody.innerHTML = '';
-      if (list.length === 0) {
-        approvedIpsTbody.innerHTML = '<tr><td colspan="5" class="text-center" style="color: var(--text-muted);">No active IP approvals</td></tr>';
-        return;
-      }
-
-      list.forEach(item => {
-        const tr = document.createElement('tr');
-        const minutes = Math.floor(item.expires_in_seconds / 60);
-        const seconds = item.expires_in_seconds % 60;
-        const timeStr = `${minutes}m ${seconds}s`;
-
-        tr.innerHTML = `
-          <td><strong>${escapeHtml(item.device_name)}</strong></td>
-          <td><code>${escapeHtml(item.ip)}</code></td>
-          <td><span class="badge" style="font-size: 0.75rem;">${escapeHtml(item.permissions.join(', '))}</span></td>
-          <td style="color: var(--accent-green); font-family: var(--font-mono);">${timeStr}</td>
-          <td>
-            <button class="btn btn-danger revoke-ip-btn" data-ip="${escapeHtml(item.ip)}" style="padding: 2px 8px; font-size: 0.75rem;">Revoke</button>
-          </td>
-        `;
-        tr.querySelector('.revoke-ip-btn').addEventListener('click', () => revokeIpAccess(item.ip));
-        approvedIpsTbody.appendChild(tr);
-      });
-    } catch (err) {
-      console.error('Failed to load approved IPs:', err);
-    }
-  }
-
-  async function revokeIpAccess(ip) {
-    if (!confirm(`Revoke access for IP ${ip}?`)) return;
-    try {
-      const res = await authFetch(`/api/access/revoke-ip/${encodeURIComponent(ip)}`, {
-        method: 'DELETE'
-      });
-      if (res.ok) {
-        showToast(`Revoked access for IP ${ip}`);
-        loadApprovedIps();
-      }
-    } catch (err) {
-      showToast('Error revoking IP access', true);
-    }
-  }
-
-  // Generate Temporary Password Form
-  generatePassForm.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const label = keyLabel.value.trim();
-    const duration_minutes = parseInt(keyDuration.value);
-    const access_type = keyPermission.value;
-
-    try {
-      const res = await authFetch('/api/passwords/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ label, duration_minutes, access_type })
-      });
-      const data = await res.json();
-      if (res.ok && data.status === 'success') {
-        generatedKeyCode.textContent = data.code;
-        generatedKeyBox.style.display = 'flex';
-        showToast(`Generated key: ${data.code}`);
-        keyLabel.value = '';
-        loadActiveKeys();
-      } else {
-        showToast(data.error || 'Failed to generate passcode', true);
-      }
-    } catch (err) {
-      showToast('Error generating passcode', true);
-    }
-  });
-
-  copyGeneratedCodeBtn.addEventListener('click', () => {
-    const code = generatedKeyCode.textContent;
-    if (code && code !== '------') {
-      navigator.clipboard.writeText(code);
-      showToast('Passcode copied to clipboard!');
-    }
-  });
-
-  // Load Active Temp Passwords Keys Table
-  async function loadActiveKeys() {
-    try {
-      const res = await authFetch('/api/passwords/list');
-      const data = await res.json();
-      if (!res.ok) return;
-
-      activeKeysTbody.innerHTML = '';
-      if (!data.passwords || data.passwords.length === 0) {
-        activeKeysTbody.innerHTML = '<tr><td colspan="5" class="text-center" style="color: var(--text-muted);">No active temporary passwords</td></tr>';
-        return;
-      }
-
-      data.passwords.forEach(item => {
-        const tr = document.createElement('tr');
-        const minutes = Math.floor(item.expires_in_seconds / 60);
-        const seconds = item.expires_in_seconds % 60;
-        const timeStr = `${minutes}m ${seconds}s`;
-
-        tr.innerHTML = `
-          <td><code>${escapeHtml(item.code)}</code></td>
-          <td>${escapeHtml(item.label)}</td>
-          <td><span class="badge" style="font-size: 0.75rem;">${escapeHtml(item.permissions.join(', '))}</span></td>
-          <td style="color: var(--accent-green); font-family: var(--font-mono);">${timeStr}</td>
-          <td>
-            <button class="btn btn-danger revoke-btn" data-code="${escapeHtml(item.code)}" style="padding: 2px 8px; font-size: 0.75rem;">Revoke</button>
-          </td>
-        `;
-        tr.querySelector('.revoke-btn').addEventListener('click', () => revokeKey(item.code));
-        activeKeysTbody.appendChild(tr);
-      });
-    } catch (err) {
-      console.error('Failed to load active keys:', err);
-    }
-  }
-
-  async function revokeKey(code) {
-    if (!confirm(`Revoke password "${code}"?`)) return;
-    try {
-      const res = await authFetch(`/api/passwords/revoke/${encodeURIComponent(code)}`, {
-        method: 'DELETE'
-      });
-      if (res.ok) {
-        showToast(`Revoked passcode ${code}`);
-        loadActiveKeys();
-      }
-    } catch (err) {
-      showToast('Failed to revoke passcode', true);
-    }
-  }
-
-  // Change Admin Password Form
-  changeAdminPassForm.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const new_password = newAdminPass.value.trim();
-    if (!new_password) return;
-
-    try {
-      const res = await authFetch('/api/admin/change-password', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ new_password })
-      });
-      const data = await res.json();
-      if (res.ok && data.status === 'success') {
-        showToast('Admin password updated successfully!');
-        newAdminPass.value = '';
-      } else {
-        showToast(data.error || 'Failed to update admin password', true);
-      }
-    } catch (err) {
-      showToast('Error updating admin password', true);
-    }
-  });
-
-  // Drag & Drop Upload
-  ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
-    dropzone.addEventListener(eventName, preventDefaults, false);
-  });
-  function preventDefaults(e) {
-    e.preventDefault();
-    e.stopPropagation();
-  }
-
-  ['dragenter', 'dragover'].forEach(eventName => {
-    dropzone.addEventListener(eventName, () => dropzone.classList.add('dragover'), false);
-  });
-  ['dragleave', 'drop'].forEach(eventName => {
-    dropzone.addEventListener(eventName, () => dropzone.classList.remove('dragover'), false);
-  });
-
-  dropzone.addEventListener('drop', (e) => {
-    if (!userPermissions.includes('write')) return;
-    handleFileUpload(e.dataTransfer.files);
-  });
-
-  fileInput.addEventListener('change', (e) => {
-    handleFileUpload(e.target.files);
-  });
-
-  async function handleFileUpload(files) {
-    if (!files || files.length === 0) return;
-    if (!userPermissions.includes('write')) {
-      showToast('Permission denied: You cannot upload files', true);
-      return;
-    }
-
-    const formData = new FormData();
-    for (let i = 0; i < files.length; i++) {
-      formData.append('files', files[i]);
-    }
-
-    uploadProgress.style.width = '30%';
-
-    try {
-      uploadProgress.style.width = '70%';
-      const res = await authFetch('/api/upload', {
-        method: 'POST',
-        body: formData
-      });
-      const data = await res.json();
-      uploadProgress.style.width = '100%';
-      setTimeout(() => { uploadProgress.style.width = '0%'; }, 1000);
-
-      if (res.ok && data.status === 'success') {
-        showToast(`Uploaded ${files.length} file(s) successfully!`);
-        loadFilesList();
-        fileInput.value = '';
-      } else {
-        showToast(data.error || 'Upload failed', true);
-      }
-    } catch (err) {
-      uploadProgress.style.width = '0%';
-      showToast('Network error during upload', true);
-    }
-  }
-
-  // Load Files List
-  async function loadFilesList(isSilent = false) {
-    try {
-      const res = await authFetch('/api/files');
-      if (!res.ok) return;
-      const data = await res.json();
-      if (!data.files) return;
-
-      allFiles = data.files;
-      renderFiles(allFiles);
-    } catch (err) {
-      if (!isSilent) console.error('Failed to load files list:', err);
-    }
-  }
-
-  function renderFiles(files) {
-    const query = searchInput.value.toLowerCase().trim();
-    const filtered = files.filter(f => f.name.toLowerCase().includes(query));
-
-    fileCountBadge.textContent = files.length;
-    filesGrid.innerHTML = '';
-
-    if (filtered.length === 0) {
-      emptyState.style.display = 'block';
-      return;
-    }
-
-    emptyState.style.display = 'none';
-
-    const canDelete = userPermissions.includes('delete');
-
-    filtered.forEach(file => {
-      const card = document.createElement('div');
-      card.className = 'file-card';
-
-      const categoryIcons = {
-        image: '🖼️', video: '🎬', audio: '🎵',
-        document: '📄', archive: '📦', code: '💻', file: '📎'
-      };
-      const icon = categoryIcons[file.category] || '📎';
-
-      card.innerHTML = `
-        ${file.preview_type === 'image' ? `
-          <div class="file-card-thumb" title="Click to preview image">
-            <img src="${file.url}?token=${encodeURIComponent(authToken)}" alt="${escapeHtml(file.name)}">
-          </div>
-        ` : ''}
-        <div class="file-header">
-          <div class="file-icon ${file.category}">${icon}</div>
-          <div class="file-details">
-            <div class="file-name" title="${escapeHtml(file.name)}">${escapeHtml(file.name)}</div>
-            <div class="file-meta">${file.size_formatted} • ${file.mod_time_formatted}</div>
-          </div>
-        </div>
-        <div class="file-actions">
-          <button class="btn btn-primary preview-btn" data-filename="${escapeHtml(file.name)}" title="Preview file inline without downloading">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
-              <circle cx="12" cy="12" r="3"></circle>
-            </svg>
-            Preview
-          </button>
-          <a href="${file.url}?token=${encodeURIComponent(authToken)}" download class="btn btn-secondary" title="Download">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-              <polyline points="7 10 12 15 17 10"></polyline>
-              <line x1="12" y1="15" x2="12" y2="3"></line>
-            </svg>
-            Download
-          </a>
-          ${canDelete ? `
-            <button class="btn btn-danger delete-btn icon-only-btn" data-filename="${escapeHtml(file.name)}" title="Delete file">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <polyline points="3 6 5 6 21 6"></polyline>
-                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-              </svg>
-            </button>
-          ` : ''}
-        </div>
-      `;
-
-      const previewBtn = card.querySelector('.preview-btn');
-      if (previewBtn) {
-        previewBtn.addEventListener('click', () => openPreviewModal(file.name));
-      }
-      const thumb = card.querySelector('.file-card-thumb');
-      if (thumb) {
-        thumb.addEventListener('click', () => openPreviewModal(file.name));
-      }
-
-      if (canDelete) {
-        const deleteBtn = card.querySelector('.delete-btn');
-        deleteBtn.addEventListener('click', () => deleteFile(file.name));
-      }
-
-      filesGrid.appendChild(card);
-    });
-  }
-
-  // Open File Preview Modal
-  async function openPreviewModal(filename) {
-    const fileIndex = allFiles.findIndex(f => f.name === filename);
-    if (fileIndex === -1) return;
-    currentPreviewIndex = fileIndex;
-    const file = allFiles[currentPreviewIndex];
-
-    const categoryIcons = {
-      image: '🖼️', video: '🎬', audio: '🎵',
-      document: '📄', archive: '📦', code: '💻', file: '📎'
-    };
-    const icon = categoryIcons[file.category] || '📁';
-
-    previewFileIcon.textContent = icon;
-    previewFileName.textContent = file.name;
-    previewFileMeta.textContent = `${file.size_formatted} • ${file.mod_time_formatted}`;
-
-    const downloadUrl = `${file.url}?token=${encodeURIComponent(authToken)}`;
-    previewDownloadBtn.href = downloadUrl;
-    fallbackDownloadBtn.href = downloadUrl;
-
-    // Reset preview elements
-    previewCopyTextBtn.style.display = 'none';
-    previewImageContainer.style.display = 'none';
-    previewTextContainer.style.display = 'none';
-    previewVideoContainer.style.display = 'none';
-    previewAudioContainer.style.display = 'none';
-    previewPdfContainer.style.display = 'none';
-    previewFallbackContainer.style.display = 'none';
-    previewLoader.style.display = 'none';
-
-    // Pause any media playing
-    previewVideo.pause();
-    previewVideo.removeAttribute('src');
-    previewVideo.load();
-    previewAudio.pause();
-    previewAudio.removeAttribute('src');
-    previewAudio.load();
-    previewPdfFrame.src = '';
-
-    previewModal.classList.add('active');
-
-    const previewType = file.preview_type || 'none';
-
-    if (previewType === 'image') {
-      previewLoader.style.display = 'flex';
-      previewImageContainer.style.display = 'flex';
-      try {
-        const res = await authFetch(downloadUrl);
-        if (!res.ok) throw new Error('Failed to fetch image');
-        const blob = await res.blob();
-        const objectUrl = URL.createObjectURL(blob);
-        previewImage.src = objectUrl;
-        previewImage.onload = () => { previewLoader.style.display = 'none'; };
-        previewImage.onerror = () => {
-          previewLoader.style.display = 'none';
-          showFallbackPreview();
-        };
-      } catch (err) {
-        previewLoader.style.display = 'none';
-        showFallbackPreview();
-      }
-    } else if (previewType === 'text') {
-      previewLoader.style.display = 'flex';
-      previewTextContainer.style.display = 'flex';
-      try {
-        const res = await authFetch(downloadUrl);
-        if (!res.ok) throw new Error('Failed to load file text');
-        const text = await res.text();
-        currentLoadedText = text;
-
-        const maxChars = 200000;
-        let isTruncated = false;
-        let textToDisplay = text;
-        if (text.length > maxChars) {
-          textToDisplay = text.substring(0, maxChars);
-          isTruncated = true;
-        }
-
-        const lines = textToDisplay.split('\n');
-        const html = lines.map((line, idx) => `
-          <div class="code-line">
-            <span class="code-line-num">${idx + 1}</span>
-            <span class="code-line-text">${escapeHtml(line)}</span>
-          </div>
-        `).join('');
-
-        previewTextCode.innerHTML = html + (isTruncated ? `\n<div class="code-line"><span class="code-line-num">...</span><span class="code-line-text" style="color: var(--accent-cyan);">[Preview truncated. File exceeds 200 KB limit. Download file to view complete content.]</span></div>` : '');
-        previewCopyTextBtn.style.display = 'inline-flex';
-      } catch (err) {
-        previewTextCode.innerHTML = `<span style="color: var(--accent-red);">Failed to load text file content.</span>`;
-      } finally {
-        previewLoader.style.display = 'none';
-      }
-    } else if (previewType === 'video') {
-      previewVideoContainer.style.display = 'flex';
-      previewVideo.src = downloadUrl;
-    } else if (previewType === 'audio') {
-      previewAudioContainer.style.display = 'flex';
-      previewAudio.src = downloadUrl;
-    } else if (previewType === 'pdf') {
-      previewPdfContainer.style.display = 'flex';
-      previewPdfFrame.src = downloadUrl;
+  // --- 2. TAB SWITCHING ---
+  function switchTab(target) {
+    if (target === 'files') {
+      tabBtnFiles.classList.add('active');
+      tabBtnText.classList.remove('active');
+      filesTab.classList.add('active');
+      textTab.classList.remove('active');
     } else {
-      showFallbackPreview();
+      tabBtnText.classList.add('active');
+      tabBtnFiles.classList.remove('active');
+      textTab.classList.add('active');
+      filesTab.classList.remove('active');
+      if (textDropContent) textDropContent.focus();
     }
   }
 
-  function showFallbackPreview() {
-    previewFallbackContainer.style.display = 'flex';
-  }
+  if (tabBtnFiles) tabBtnFiles.addEventListener('click', () => switchTab('files'));
+  if (tabBtnText) tabBtnText.addEventListener('click', () => switchTab('text'));
 
-  function closePreviewModal() {
-    previewModal.classList.remove('active');
-    previewVideo.pause();
-    previewVideo.removeAttribute('src');
-    previewAudio.pause();
-    previewAudio.removeAttribute('src');
-    previewPdfFrame.src = '';
-    currentPreviewIndex = -1;
-  }
-
-  function navigatePreview(dir) {
-    if (currentPreviewIndex === -1 || allFiles.length === 0) return;
-    let nextIndex = currentPreviewIndex + dir;
-    if (nextIndex < 0) nextIndex = allFiles.length - 1;
-    if (nextIndex >= allFiles.length) nextIndex = 0;
-    openPreviewModal(allFiles[nextIndex].name);
-  }
-
-  closePreviewBtn.addEventListener('click', closePreviewModal);
-  prevFileBtn.addEventListener('click', () => navigatePreview(-1));
-  nextFileBtn.addEventListener('click', () => navigatePreview(1));
-
-  previewModal.addEventListener('click', (e) => {
-    if (e.target === previewModal) closePreviewModal();
-  });
-
-  window.addEventListener('keydown', (e) => {
-    if (!previewModal.classList.contains('active')) return;
-    if (e.key === 'Escape') {
-      closePreviewModal();
-    } else if (e.key === 'ArrowLeft') {
-      navigatePreview(-1);
-    } else if (e.key === 'ArrowRight') {
-      navigatePreview(1);
-    }
-  });
-
-  previewCopyTextBtn.addEventListener('click', () => {
-    if (currentLoadedText) {
-      navigator.clipboard.writeText(currentLoadedText);
-      showToast('Code / Text content copied to clipboard!');
-    }
-  });
-
-  // Delete File API Call
-  async function deleteFile(filename) {
-    if (!confirm(`Are you sure you want to delete "${filename}"?`)) return;
-
-    try {
-      const res = await authFetch(`/api/files/${encodeURIComponent(filename)}`, {
-        method: 'DELETE'
-      });
-      const data = await res.json();
-      if (res.ok && data.status === 'success') {
-        showToast(`Deleted ${filename}`);
-        loadFilesList();
-      } else {
-        showToast(data.error || 'Failed to delete file', true);
-      }
-    } catch (err) {
-      showToast('Network error during deletion', true);
-    }
-  }
-
-  searchInput.addEventListener('input', () => renderFiles(allFiles));
-
-  // Load Clipboard Text
-  async function loadClipboardText(isSilent = false) {
-    try {
-      const res = await authFetch('/api/clipboard');
-      if (!res.ok) return;
-      const data = await res.json();
-      
-      if (document.activeElement !== clipboardInput && data.text !== undefined) {
-        clipboardInput.value = data.text;
-      }
-      if (data.updated_at) {
-        lastSyncTime.textContent = `Synced: ${data.updated_at}`;
-      }
-    } catch (err) {
-      if (!isSilent) console.error('Failed to load clipboard text:', err);
-    }
-  }
-
-  // Save Clipboard Text
-  async function saveClipboardText() {
-    if (!userPermissions.includes('write')) {
-      showToast('Permission denied: Read-only access', true);
-      return;
-    }
-    const text = clipboardInput.value;
-    try {
-      const res = await authFetch('/api/clipboard', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text })
-      });
-      const data = await res.json();
-      if (res.ok) {
-        showToast('Text synchronized across all devices!');
-        if (data.clipboard && data.clipboard.updated_at) {
-          lastSyncTime.textContent = `Synced: ${data.clipboard.updated_at}`;
-        }
-      }
-    } catch (err) {
-      showToast('Failed to sync text', true);
-    }
-  }
-
-  saveClipboardBtn.addEventListener('click', saveClipboardText);
-
-  copyClipboardBtn.addEventListener('click', () => {
-    if (clipboardInput.value) {
-      navigator.clipboard.writeText(clipboardInput.value);
-      showToast('Clipboard text copied!');
-    }
-  });
-
-  // Public Share Drops State & Elements
-  let publicSharesData = [];
-  let currentUnlockShareId = null;
-  let publicTimerInterval = null;
-
-  const showPublicDropBtn = document.getElementById('showPublicDropBtn');
-  const openPublicUploadModalBtn = document.getElementById('openPublicUploadModalBtn');
-  const publicUploadModal = document.getElementById('publicUploadModal');
-  const closePublicUploadBtn = document.getElementById('closePublicUploadBtn');
-  const publicUploadForm = document.getElementById('publicUploadForm');
-  const publicDropTitle = document.getElementById('publicDropTitle');
-  const publicDropPassword = document.getElementById('publicDropPassword');
-  const publicDropFileInput = document.getElementById('publicDropFileInput');
-
-  const publicUnlockModal = document.getElementById('publicUnlockModal');
-  const closePublicUnlockBtn = document.getElementById('closePublicUnlockBtn');
-  const publicUnlockForm = document.getElementById('publicUnlockForm');
-  const unlockDropTitle = document.getElementById('unlockDropTitle');
-  const unlockDropMeta = document.getElementById('unlockDropMeta');
-  const unlockDropPassword = document.getElementById('unlockDropPassword');
-  const unlockDropError = document.getElementById('unlockDropError');
-  const unlockedFilesContainer = document.getElementById('unlockedFilesContainer');
-  const unlockedFilesList = document.getElementById('unlockedFilesList');
-
-  const publicDropsGrid = document.getElementById('publicDropsGrid');
-  const publicEmptyState = document.getElementById('publicEmptyState');
-  const publicSharesBadge = document.getElementById('publicSharesBadge');
-
-  // Open Public Upload Modal from Login Screen
-  if (showPublicDropBtn) {
-    showPublicDropBtn.addEventListener('click', () => {
-      publicUploadModal.classList.add('active');
+  // --- 3. FILE DROP UPLOADER LOGIC ---
+  if (browseFilesBtn && fileDropInput) {
+    browseFilesBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      fileDropInput.click();
     });
   }
 
-  // Open Public Upload Modal from App Tab
-  if (openPublicUploadModalBtn) {
-    openPublicUploadModalBtn.addEventListener('click', () => {
-      publicUploadModal.classList.add('active');
+  if (dropzone && fileDropInput) {
+    dropzone.addEventListener('click', (e) => {
+      if (e.target !== browseFilesBtn) {
+        fileDropInput.click();
+      }
     });
-  }
 
-  if (closePublicUploadBtn) {
-    closePublicUploadBtn.addEventListener('click', () => {
-      publicUploadModal.classList.remove('active');
-    });
-  }
-
-  if (closePublicUnlockBtn) {
-    closePublicUnlockBtn.addEventListener('click', () => {
-      publicUnlockModal.classList.remove('active');
-    });
-  }
-
-  // Handle Public Upload Submit
-  if (publicUploadForm) {
-    publicUploadForm.addEventListener('submit', async (e) => {
+    dropzone.addEventListener('dragover', (e) => {
       e.preventDefault();
-      const title = publicDropTitle.value.trim();
-      const password = publicDropPassword.value.trim();
-      const files = publicDropFileInput.files;
+      dropzone.classList.add('dragover');
+    });
 
-      if (!password) {
-        showToast('Please set a password for the public share drop', true);
+    dropzone.addEventListener('dragleave', () => {
+      dropzone.classList.remove('dragover');
+    });
+
+    dropzone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropzone.classList.remove('dragover');
+      if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+        fileDropInput.files = e.dataTransfer.files;
+        updateDropzoneLabel();
+      }
+    });
+
+    fileDropInput.addEventListener('change', updateDropzoneLabel);
+  }
+
+  function updateDropzoneLabel() {
+    const files = fileDropInput.files;
+    if (files && files.length > 0) {
+      dropzoneTitle.textContent = `📁 ${files.length} file${files.length > 1 ? 's' : ''} selected`;
+      const names = Array.from(files).map(f => f.name).join(', ');
+      dropzoneSubtitle.textContent = names.length > 60 ? names.substring(0, 60) + '...' : names;
+    } else {
+      dropzoneTitle.textContent = 'Drag & Drop Files Here';
+      dropzoneSubtitle.textContent = 'or click anywhere inside this box to browse files';
+    }
+  }
+
+  if (fileDropForm) {
+    fileDropForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const files = fileDropInput.files;
+      const password = fileDropPassword.value.trim();
+      const title = fileDropTitle.value.trim();
+      const lifetime = fileDropLifetime.value;
+
+      if (!files || files.length === 0) {
+        showToast('Please select at least one file', true);
         return;
       }
-      if (!files || files.length === 0) {
-        showToast('Please select at least one file to upload', true);
+      if (!password) {
+        showToast('Please set an unlock password or PIN', true);
         return;
       }
 
       const formData = new FormData();
       formData.append('title', title);
       formData.append('password', password);
+      formData.append('lifetime', lifetime);
       for (let i = 0; i < files.length; i++) {
         formData.append('files', files[i]);
       }
 
       try {
-        showToast('Uploading public drop...');
-        const res = await fetch('/api/public/create', {
+        submitFileDropBtn.disabled = true;
+        submitFileDropBtn.textContent = 'Uploading files...';
+        if (uploadProgressBar) uploadProgressBar.style.width = '60%';
+
+        const res = await fetch('/api/drops/upload', {
           method: 'POST',
           body: formData
         });
+
+        if (uploadProgressBar) uploadProgressBar.style.width = '100%';
         const data = await res.json();
+
         if (res.ok && data.status === 'success') {
-          showToast(data.message || 'Public drop created successfully!');
-          publicUploadForm.reset();
-          publicUploadModal.classList.remove('active');
-          loadPublicShares();
+          showToast(data.message || 'File drop created successfully!');
+          fileDropForm.reset();
+          updateDropzoneLabel();
+          loadDrops();
         } else {
-          showToast(data.error || 'Failed to create public drop', true);
+          showToast(data.error || 'Failed to create file drop', true);
         }
       } catch (err) {
-        showToast('Network error during public drop creation', true);
+        showToast('Network error while uploading files', true);
+      } finally {
+        submitFileDropBtn.disabled = false;
+        submitFileDropBtn.textContent = '🚀 Create & Publish File Drop';
+        setTimeout(() => {
+          if (uploadProgressBar) uploadProgressBar.style.width = '0%';
+        }, 600);
       }
     });
   }
 
-  // Fetch Public Shares List
-  async function loadPublicShares() {
+  // --- 4. TEXT DROP LOGIC ---
+  if (textDropContent) {
+    textDropContent.addEventListener('input', updateTextCounters);
+
+    // Support Tab key inside textarea
+    textDropContent.addEventListener('keydown', (e) => {
+      if (e.key === 'Tab') {
+        e.preventDefault();
+        const start = textDropContent.selectionStart;
+        const end = textDropContent.selectionEnd;
+        textDropContent.value = textDropContent.value.substring(0, start) + '  ' + textDropContent.value.substring(end);
+        textDropContent.selectionStart = textDropContent.selectionEnd = start + 2;
+        updateTextCounters();
+      }
+    });
+  }
+
+  function updateTextCounters() {
+    const text = textDropContent ? textDropContent.value : '';
+    const chars = text.length;
+    const lines = text ? text.split('\n').length : 0;
+    if (charCountDisplay) charCountDisplay.textContent = `${chars} char${chars !== 1 ? 's' : ''}`;
+    if (lineCountDisplay) lineCountDisplay.textContent = `${lines} line${lines !== 1 ? 's' : ''}`;
+  }
+
+  if (textDropForm) {
+    textDropForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const content = textDropContent.value.trim();
+      const password = textDropPassword.value.trim();
+      const title = textDropTitle.value.trim();
+      const lifetime = textDropLifetime.value;
+      const burnAfterRead = textDropBurnAfterRead.checked;
+
+      if (!content) {
+        showToast('Please enter or paste some text', true);
+        return;
+      }
+      if (!password) {
+        showToast('Please set an unlock password or PIN', true);
+        return;
+      }
+
+      try {
+        submitTextDropBtn.disabled = true;
+        submitTextDropBtn.textContent = 'Locking note...';
+
+        const res = await fetch('/api/drops/paste', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            content,
+            password,
+            title,
+            lifetime: parseInt(lifetime),
+            burn_after_read: burnAfterRead
+          })
+        });
+
+        const data = await res.json();
+        if (res.ok && data.status === 'success') {
+          showToast(data.message || 'Locked text note created!');
+          textDropForm.reset();
+          updateTextCounters();
+          loadDrops();
+        } else {
+          showToast(data.error || 'Failed to create text note', true);
+        }
+      } catch (err) {
+        showToast('Network error creating text note', true);
+      } finally {
+        submitTextDropBtn.disabled = false;
+        submitTextDropBtn.textContent = '🔒 Lock & Publish Text Note';
+      }
+    });
+  }
+
+  // --- 5. DROPS FEED & FILTERING ---
+  async function loadDrops() {
     try {
-      const res = await fetch('/api/public/list');
+      const res = await fetch('/api/drops');
       if (!res.ok) return;
       const data = await res.json();
-      publicSharesData = data.public_shares || [];
-      renderPublicShares();
+      activeDrops = data.drops || [];
+      updateCounts();
+      renderDrops();
     } catch (err) {
-      console.error('Error fetching public shares:', err);
+      console.error('Error fetching drops:', err);
     }
   }
 
-  function renderPublicShares() {
-    if (!publicDropsGrid) return;
-    publicDropsGrid.innerHTML = '';
-    if (publicSharesBadge) publicSharesBadge.textContent = publicSharesData.length;
+  function updateCounts() {
+    const total = activeDrops.length;
+    const filesCount = activeDrops.filter(d => d.drop_type === 'files').length;
+    const textCount = activeDrops.filter(d => d.drop_type === 'text').length;
 
-    if (publicSharesData.length === 0) {
-      if (publicEmptyState) publicEmptyState.style.display = 'block';
+    if (totalDropsCount) totalDropsCount.textContent = total;
+    if (filesDropsCount) filesDropsCount.textContent = filesCount;
+    if (textDropsCount) textDropsCount.textContent = textCount;
+  }
+
+  filterButtons.forEach(btn => {
+    btn.addEventListener('click', () => {
+      filterButtons.forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      currentFilter = btn.dataset.filter;
+      renderDrops();
+    });
+  });
+
+  if (refreshDropsBtn) {
+    refreshDropsBtn.addEventListener('click', () => {
+      loadDrops();
+      showToast('Drops refreshed!');
+    });
+  }
+
+  function renderDrops() {
+    if (!dropsGrid) return;
+    dropsGrid.innerHTML = '';
+
+    const filtered = activeDrops.filter(d => {
+      if (currentFilter === 'files') return d.drop_type === 'files';
+      if (currentFilter === 'text') return d.drop_type === 'text';
+      return true;
+    });
+
+    if (filtered.length === 0) {
+      if (dropsEmptyState) dropsEmptyState.style.display = 'block';
       return;
     }
 
-    if (publicEmptyState) publicEmptyState.style.display = 'none';
+    if (dropsEmptyState) dropsEmptyState.style.display = 'none';
 
-    publicSharesData.forEach(share => {
-      const card = document.createElement('div');
-      card.className = 'public-drop-card';
-      card.dataset.shareId = share.share_id;
-      card.dataset.expiresAt = share.expires_at;
+    const now = Date.now() / 1000;
 
-      const remainingSecs = Math.max(0, Math.floor(share.expires_at - (Date.now() / 1000)));
+    filtered.forEach(drop => {
+      const isUnlocked = !!unlockedDropsCache[drop.drop_id];
+      const isFile = drop.drop_type === 'files';
+      const remainingSecs = Math.max(0, Math.floor(drop.expires_at - now));
       const mins = Math.floor(remainingSecs / 60);
       const secs = remainingSecs % 60;
       const timeStr = `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
 
+      const card = document.createElement('div');
+      card.className = `drop-card type-${drop.drop_type}`;
+      card.dataset.dropId = drop.drop_id;
+
+      let metaText = '';
+      if (isFile) {
+        metaText = `📄 ${drop.file_count} file${drop.file_count !== 1 ? 's' : ''} • ${drop.total_size_formatted}`;
+      } else {
+        metaText = `📝 ${drop.char_count} chars • ${drop.line_count} lines`;
+        if (drop.burn_after_read) {
+          metaText += ' • 🔥 Burn on read';
+        }
+      }
+
       card.innerHTML = `
-        <div class="public-drop-header">
-          <div class="public-drop-icon">📦</div>
-          <span class="timer-badge ${mins < 5 ? 'warning' : ''}" id="timer-${share.share_id}">
+        <div class="drop-card-top">
+          <span class="drop-type-badge ${isFile ? 'cyan' : 'purple'}">
+            ${isFile ? '📦 File Drop' : '📝 Text Note'}
+          </span>
+          <span class="timer-badge ${mins < 5 ? 'warning' : ''}" id="timer-${drop.drop_id}">
             ⏱️ ${timeStr}
           </span>
         </div>
+
         <div>
-          <div class="public-drop-title">${escapeHtml(share.title)}</div>
-          <div class="public-drop-info">
-            📄 ${share.file_count} file(s) • ${share.total_size_formatted}
-          </div>
-          <div class="public-drop-info" style="margin-top: 0.2rem; font-size: 0.78rem; opacity: 0.7;">
-            Created at ${escapeHtml(share.created_at_formatted)}
+          <div class="drop-card-title">${escapeHtml(drop.title)}</div>
+          <div class="drop-card-meta">${metaText}</div>
+          <div class="drop-card-meta" style="font-size: 0.75rem; opacity: 0.6; margin-top: 0.2rem;">
+            Created at ${escapeHtml(drop.created_at_formatted)}
           </div>
         </div>
-        <button class="btn btn-primary cyan w-full unlock-drop-btn" data-share-id="${share.share_id}">
-          🔓 Unlock & View Files
-        </button>
+
+        <div class="drop-card-footer">
+          <span>${isUnlocked ? '✅ Unlocked' : (drop.burn_after_read ? '🔥 Locked (Burn)' : '🔒 Password Locked')}</span>
+          <span class="action">${isUnlocked ? 'Open ➔' : 'Click to Unlock ➔'}</span>
+        </div>
       `;
 
-      publicDropsGrid.appendChild(card);
-    });
-
-    // Attach click listeners to Unlock buttons
-    document.querySelectorAll('.unlock-drop-btn').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        const sId = e.currentTarget.getAttribute('data-share-id');
-        openUnlockModal(sId);
-      });
+      card.addEventListener('click', () => handleDropClick(drop.drop_id));
+      dropsGrid.appendChild(card);
     });
   }
 
-  function updatePublicShareTimers() {
-    if (!publicSharesData || publicSharesData.length === 0) return;
-    const nowSecs = Date.now() / 1000;
+  // --- 6. LIVE TIMERS ---
+  setInterval(() => {
+    if (!activeDrops || activeDrops.length === 0) return;
+    const now = Date.now() / 1000;
 
-    publicSharesData.forEach(share => {
-      const remainingSecs = Math.max(0, Math.floor(share.expires_at - nowSecs));
-      const badge = document.getElementById(`timer-${share.share_id}`);
+    activeDrops.forEach(drop => {
+      const remainingSecs = Math.max(0, Math.floor(drop.expires_at - now));
+      const mins = Math.floor(remainingSecs / 60);
+      const secs = remainingSecs % 60;
+      const timeStr = `⏱️ ${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+
+      const badge = document.getElementById(`timer-${drop.drop_id}`);
       if (badge) {
-        const mins = Math.floor(remainingSecs / 60);
-        const secs = remainingSecs % 60;
-        badge.textContent = `⏱️ ${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+        badge.textContent = timeStr;
         if (mins < 5) badge.classList.add('warning');
       }
+
+      // If unlocked in files view modal
+      if (unlockedFolderTimer && filesViewModal.classList.contains('active') && filesViewModal.dataset.dropId === drop.drop_id) {
+        unlockedFolderTimer.textContent = timeStr;
+      }
+      // If unlocked in text view modal
+      if (unlockedTextTimer && textViewModal.classList.contains('active') && textViewModal.dataset.dropId === drop.drop_id) {
+        unlockedTextTimer.textContent = timeStr;
+      }
     });
-  }
+  }, 1000);
 
-  if (!publicTimerInterval) {
-    publicTimerInterval = setInterval(() => {
-      updatePublicShareTimers();
-    }, 1000);
-  }
-
-  function openUnlockModal(shareId) {
-    currentUnlockShareId = shareId;
-    const share = publicSharesData.find(s => s.share_id === shareId);
-    if (share) {
-      if (unlockDropTitle) unlockDropTitle.textContent = `📦 ${share.title}`;
-      if (unlockDropMeta) unlockDropMeta.textContent = `${share.file_count} File(s) • Protected Drop`;
+  // --- 7. HANDLE DROP CLICK & UNLOCK ---
+  function handleDropClick(dropId) {
+    if (unlockedDropsCache[dropId]) {
+      const data = unlockedDropsCache[dropId];
+      if (data.drop_type === 'files') {
+        openFilesModal(data);
+      } else {
+        openTextModal(data);
+      }
+      return;
     }
-    if (unlockDropPassword) unlockDropPassword.value = '';
-    if (unlockDropError) unlockDropError.style.display = 'none';
-    if (unlockedFilesContainer) unlockedFilesContainer.style.display = 'none';
-    if (unlockedFilesList) unlockedFilesList.innerHTML = '';
-    if (publicUnlockModal) publicUnlockModal.classList.add('active');
+
+    openUnlockModal(dropId);
   }
 
-  // Handle Unlock Form Submission
-  if (publicUnlockForm) {
-    publicUnlockForm.addEventListener('submit', async (e) => {
+  function openUnlockModal(dropId) {
+    activePromptDropId = dropId;
+    const drop = activeDrops.find(d => d.drop_id === dropId);
+    if (!drop) return;
+
+    if (unlockModalTitle) unlockModalTitle.textContent = drop.title;
+    if (unlockModalSubtitle) {
+      unlockModalSubtitle.textContent = drop.drop_type === 'files'
+        ? `Enter password to open folder (${drop.file_count} files)`
+        : `Enter password to read note (${drop.char_count} chars)`;
+    }
+    if (unlockModalIcon) {
+      unlockModalIcon.textContent = drop.drop_type === 'files' ? '📁' : '📝';
+    }
+    if (unlockPassword) unlockPassword.value = '';
+    if (unlockErrorBanner) unlockErrorBanner.style.display = 'none';
+
+    if (unlockModal) unlockModal.classList.add('active');
+    setTimeout(() => {
+      if (unlockPassword) unlockPassword.focus();
+    }, 100);
+  }
+
+  function closeUnlockModal() {
+    if (unlockModal) unlockModal.classList.remove('active');
+    activePromptDropId = null;
+  }
+
+  if (closeUnlockModalBtn) closeUnlockModalBtn.addEventListener('click', closeUnlockModal);
+  if (cancelUnlockBtn) cancelUnlockBtn.addEventListener('click', closeUnlockModal);
+
+  if (unlockForm) {
+    unlockForm.addEventListener('submit', async (e) => {
       e.preventDefault();
-      const password = unlockDropPassword.value.trim();
-      if (!currentUnlockShareId || !password) return;
+      const password = unlockPassword.value.trim();
+      if (!activePromptDropId || !password) return;
 
       try {
-        const res = await fetch('/api/public/unlock', {
+        const res = await fetch('/api/drops/unlock', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ share_id: currentUnlockShareId, password })
+          body: JSON.stringify({ drop_id: activePromptDropId, password })
         });
+
         const data = await res.json();
         if (res.ok && data.status === 'success') {
-          if (unlockDropError) unlockDropError.style.display = 'none';
-          renderUnlockedFiles(data.unlocked.files);
+          const unlocked = data.unlocked;
+          const dropId = activePromptDropId;
+
+          closeUnlockModal();
+
+          if (unlocked.burn_after_read) {
+            // Drop destroyed upon viewing: do not cache for re-entry, refresh feed
+            loadDrops();
+            openTextModal(unlocked);
+            showToast('Note unlocked! Notice: Burn-after-read activated.', true);
+          } else {
+            unlockedDropsCache[dropId] = unlocked;
+            renderDrops();
+            showToast('Drop unlocked successfully!');
+            if (unlocked.drop_type === 'files') {
+              openFilesModal(unlocked);
+            } else {
+              openTextModal(unlocked);
+            }
+          }
         } else {
-          if (unlockDropError) {
-            unlockDropError.textContent = data.error || 'Invalid password';
-            unlockDropError.style.display = 'block';
+          if (unlockErrorBanner) {
+            unlockErrorBanner.textContent = data.error || 'Incorrect password or PIN';
+            unlockErrorBanner.style.display = 'block';
           }
         }
       } catch (err) {
-        if (unlockDropError) {
-          unlockDropError.textContent = 'Network error verifying password';
-          unlockDropError.style.display = 'block';
+        if (unlockErrorBanner) {
+          unlockErrorBanner.textContent = 'Network error verifying password';
+          unlockErrorBanner.style.display = 'block';
         }
       }
     });
   }
 
+  // --- 8. MODAL: UNLOCKED FILES FOLDER ---
+  function openFilesModal(unlocked) {
+    if (!filesViewModal) return;
+    filesViewModal.dataset.dropId = unlocked.drop_id;
+    if (unlockedFolderTitle) unlockedFolderTitle.textContent = unlocked.title;
+    if (unlockedFolderMeta) {
+      const totalSize = unlocked.files.reduce((a, b) => a + b.size, 0);
+      unlockedFolderMeta.textContent = `${unlocked.files.length} file(s) available for download`;
+    }
+
+    renderUnlockedFiles(unlocked.files);
+    filesViewModal.classList.add('active');
+  }
+
   function renderUnlockedFiles(files) {
-    if (!unlockedFilesList || !unlockedFilesContainer) return;
+    if (!unlockedFilesList) return;
     unlockedFilesList.innerHTML = '';
 
     files.forEach(f => {
-      const item = document.createElement('div');
-      item.className = 'unlocked-file-item';
-      item.innerHTML = `
-        <div style="display: flex; align-items: center; gap: 0.5rem;">
-          <span>📄</span>
+      const row = document.createElement('div');
+      row.className = 'file-row';
+      const icon = getFileIcon(f.name);
+
+      row.innerHTML = `
+        <div class="file-row-left">
+          <span class="file-row-icon">${icon}</span>
           <div>
-            <div class="unlocked-file-name">${escapeHtml(f.name)}</div>
-            <div style="font-size: 0.78rem; color: var(--text-muted);">${f.size_formatted}</div>
+            <div class="file-row-title">${escapeHtml(f.name)}</div>
+            <div class="file-row-size">${f.size_formatted}</div>
           </div>
         </div>
-        <a href="${f.download_url}" download class="btn btn-primary cyan" style="padding: 0.4rem 0.8rem; font-size: 0.82rem;">
-          ⬇️ Download
-        </a>
+        <div>
+          <a href="${f.download_url}" download class="btn btn-primary cyan" style="padding: 0.5rem 1rem; font-size: 0.85rem;">
+            ⬇️ Download
+          </a>
+        </div>
       `;
-      unlockedFilesList.appendChild(item);
-    });
 
-    unlockedFilesContainer.style.display = 'block';
+      unlockedFilesList.appendChild(row);
+    });
   }
 
-  // Attach Public Tab auto-load on tab switch
-  tabBtns.forEach(btn => {
-    btn.addEventListener('click', () => {
-      const tabId = btn.getAttribute('data-tab');
-      if (tabId === 'public-shares-tab') {
-        loadPublicShares();
+  if (closeFilesViewBtn) {
+    closeFilesViewBtn.addEventListener('click', () => {
+      filesViewModal.classList.remove('active');
+    });
+  }
+
+  if (lockFolderNowBtn) {
+    lockFolderNowBtn.addEventListener('click', () => {
+      const dropId = filesViewModal.dataset.dropId;
+      if (dropId && unlockedDropsCache[dropId]) {
+        delete unlockedDropsCache[dropId];
+        renderDrops();
+        showToast('Folder locked');
+      }
+      filesViewModal.classList.remove('active');
+    });
+  }
+
+  // --- 9. MODAL: UNLOCKED TEXT NOTE ---
+  function openTextModal(unlocked) {
+    if (!textViewModal) return;
+    textViewModal.dataset.dropId = unlocked.drop_id;
+    if (unlockedTextTitle) unlockedTextTitle.textContent = unlocked.title;
+    if (unlockedTextMeta) {
+      unlockedTextMeta.textContent = `${unlocked.char_count} chars • ${unlocked.line_count} lines`;
+    }
+    if (unlockedTextContent) {
+      unlockedTextContent.textContent = unlocked.content;
+    }
+
+    if (burnAlertBanner) {
+      burnAlertBanner.style.display = unlocked.burn_after_read ? 'block' : 'none';
+    }
+
+    textViewModal.classList.add('active');
+  }
+
+  if (closeTextViewBtn) {
+    closeTextViewBtn.addEventListener('click', () => {
+      textViewModal.classList.remove('active');
+    });
+  }
+
+  if (copyNoteContentBtn) {
+    copyNoteContentBtn.addEventListener('click', async () => {
+      if (!unlockedTextContent) return;
+      const text = unlockedTextContent.textContent;
+      try {
+        await navigator.clipboard.writeText(text);
+        copyNoteContentBtn.textContent = '✅ Copied!';
+        showToast('Text copied to clipboard!');
+        setTimeout(() => {
+          copyNoteContentBtn.textContent = '📋 Copy Text';
+        }, 2000);
+      } catch (err) {
+        showToast('Failed to copy text', true);
+      }
+    });
+  }
+
+  // --- 10. QR CODE MODAL ---
+  if (openQrBtn) {
+    openQrBtn.addEventListener('click', () => {
+      if (modalUrlDisplay) modalUrlDisplay.textContent = serverPrimaryUrl;
+
+      if (qrcodeDiv) {
+        qrcodeDiv.innerHTML = '';
+        if (typeof QRCode !== 'undefined') {
+          qrcodeInstance = new QRCode(qrcodeDiv, {
+            text: serverPrimaryUrl,
+            width: 200,
+            height: 200,
+            colorDark: '#000000',
+            colorLight: '#ffffff',
+            correctLevel: QRCode.CorrectLevel.M
+          });
+        } else {
+          qrcodeDiv.innerHTML = `<p style="color: #333; padding: 1rem; text-align: center;">Open:<br><strong>${serverPrimaryUrl}</strong></p>`;
+        }
+      }
+
+      if (qrModal) qrModal.classList.add('active');
+    });
+  }
+
+  if (closeQrBtn) {
+    closeQrBtn.addEventListener('click', () => {
+      if (qrModal) qrModal.classList.remove('active');
+    });
+  }
+
+  if (copyUrlBtn) {
+    copyUrlBtn.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(serverPrimaryUrl);
+        copyUrlBtn.textContent = 'Copied!';
+        showToast('Address copied to clipboard!');
+        setTimeout(() => {
+          copyUrlBtn.textContent = 'Copy Link';
+        }, 2000);
+      } catch (err) {
+        showToast('Could not copy link', true);
+      }
+    });
+  }
+
+  // Close modals on clicking overlay outside card
+  document.querySelectorAll('.modal-overlay').forEach(modal => {
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) {
+        modal.classList.remove('active');
       }
     });
   });
 
-  // Also load public shares on page initialization
-  loadPublicShares();
+  // --- UTILITIES ---
+  function getFileIcon(filename) {
+    const ext = filename.split('.').pop().toLowerCase();
+    if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'].includes(ext)) return '🖼️';
+    if (['mp4', 'mkv', 'avi', 'mov', 'webm'].includes(ext)) return '🎬';
+    if (['mp3', 'wav', 'flac', 'm4a'].includes(ext)) return '🎵';
+    if (['pdf'].includes(ext)) return '📕';
+    if (['zip', 'tar', 'gz', '7z', 'rar'].includes(ext)) return '📦';
+    if (['py', 'js', 'html', 'css', 'json', 'c', 'cpp', 'rs', 'go', 'sh'].includes(ext)) return '💻';
+    if (['txt', 'md', 'doc', 'docx'].includes(ext)) return '📄';
+    return '📁';
+  }
 
-  // Utilities
   function showToast(msg, isError = false) {
     const container = document.getElementById('toastContainer');
+    if (!container) return;
     const toast = document.createElement('div');
-    toast.className = 'toast';
-    if (isError) toast.style.borderColor = 'var(--accent-red)';
+    toast.className = `toast ${isError ? 'error' : ''}`;
 
     toast.innerHTML = `
       <span>${isError ? '⚠️' : '✅'}</span>
@@ -1362,12 +726,16 @@ document.addEventListener('DOMContentLoaded', () => {
       toast.style.opacity = '0';
       toast.style.transform = 'translateX(100%)';
       setTimeout(() => toast.remove(), 300);
-    }, 3000);
+    }, 3200);
   }
 
   function escapeHtml(str) {
-    return str.replace(/[&<>"']/g, function(m) {
+    if (!str) return '';
+    return String(str).replace(/[&<>"']/g, function(m) {
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[m];
     });
   }
+
+  // Initial Load
+  loadDrops();
 });
