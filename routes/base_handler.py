@@ -6,7 +6,6 @@ from datetime import datetime
 from http.server import BaseHTTPRequestHandler
 
 from config import PUBLIC_DIR
-from core.auth import get_auth_token, authenticate
 
 class BaseRequestHandler(BaseHTTPRequestHandler):
 
@@ -31,16 +30,10 @@ class BaseRequestHandler(BaseHTTPRequestHandler):
     def send_error_msg(self, message, status=400):
         self.send_json({"error": message}, status=status)
 
-    def get_auth_token(self):
-        return get_auth_token(self)
-
-    def authenticate(self, required_permission=None):
-        return authenticate(self, required_permission)
-
     def do_OPTIONS(self):
         self.send_response(200)
         self.send_header('Access-Control-Allow-Origin', '*')
-        self.send_header('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS')
+        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
         self.send_header('Access-Control-Allow-Headers', 'Content-Type, Authorization')
         self.end_headers()
 
@@ -60,6 +53,7 @@ class BaseRequestHandler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header('Content-Type', mime_type)
             self.send_header('Content-Length', str(len(content)))
+            self.send_header('Access-Control-Allow-Origin', '*')
             self.end_headers()
             self.wfile.write(content)
             return True
