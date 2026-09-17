@@ -11,6 +11,8 @@ shared_storage/*
 !shared_storage/.gitkeep
 public_shares/*
 !public_shares/.gitkeep
+drops_storage/*
+!drops_storage/.gitkeep
 
 # System & IDE temp files
 .DS_Store
