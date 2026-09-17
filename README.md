@@ -1,6 +1,6 @@
-# 📁 Wi-Fi Share
+# ⚡ Wi-Fi Drop
 
-A sleek, lightweight, zero-dependency local Wi-Fi file & text sharing application built with Python 3. Easily transfer files and share clipboard text between computers, smartphones, and tablets on the same Wi-Fi network.
+A sleek, ultra-lightweight, zero-dependency local Wi-Fi file & locked text sharing application built with Python 3. Easily transfer files and share private text snippets between computers, smartphones, and tablets on the same Wi-Fi network with **zero login required**, **custom PIN/password locks**, and **automatic self-destruct timers**.
 
 ![Python Version](https://img.shields.io/badge/python-3.8%2B-blue.svg)
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
@@ -11,13 +11,15 @@ A sleek, lightweight, zero-dependency local Wi-Fi file & text sharing applicatio
 
 ## ✨ Features
 
-- ⚡ **Zero External Dependencies**: Built entirely with standard Python 3 libraries (`http.server`, `socket`, `threading`). Runs out of the box on Ubuntu/Linux.
-- 📱 **QR Code Mobile Access**: Automatically detects your Wi-Fi IP address and generates a scannable QR code on screen for quick phone connection.
-- 🔒 **Password Protection**: Permanent Admin access + timed temporary guest passcodes with custom validity (15m, 1h, 6h, 24h).
-- 🛡️ **Granular Permission Controls**: Assign `Read-Only` (View & Download), `Read & Write` (Upload & Text Sync), or `Full Access` (Delete enabled).
-- 🔄 **Live Text & Clipboard Sync**: Instant real-time text snippet sharing across devices.
-- 🎨 **Glassmorphism UI**: Modern dark theme with drag-and-drop file upload, search filter, and tab favicon logo.
-- ⚙️ **Automatic System Startup**: Includes an autostart setup script (`setup-autostart.sh`) and background `systemd` user service setup.
+- ⚡ **Zero External Dependencies**: Built entirely with standard Python 3 standard libraries (`http.server`, `socket`, `threading`). Runs out of the box on Linux, macOS, and Windows.
+- 🚀 **Zero Login Required**: No admin credentials, user accounts, or IP approval queues. Just open the URL and start sharing instantly.
+- 📦 **Ephemeral File Drops**: Upload multiple files into password-protected drops with drag-and-drop support.
+- 📝 **Locked Text Pastes**: Share passwords, OTP codes, Wi-Fi credentials, terminal commands, or notes securely with a PIN/password and 1-click clipboard copy.
+- 🔥 **Burn-After-Reading Option**: Optionally destroy sensitive text notes immediately after their first unlock.
+- ⏱️ **Automatic Self-Destruction**: Configurable expiry timers (15 min, 30 min, 1 hr) that permanently purge files and memory from the server.
+- 📱 **QR Code Mobile Access**: Automatically detects local network IP and renders a scannable QR code for instant phone/tablet pairing.
+- 🎨 **Modern Glassmorphic UI**: High-contrast dark design system with live countdown timers, tab switching, and responsive layout.
+- ⚙️ **Automatic System Startup**: Includes an autostart setup script (`setup-autostart.sh`) for Linux desktop/systemd environments.
 
 ---
 
@@ -35,26 +37,17 @@ Open any web browser on your computer or mobile device connected to the same Wi-
 ```
 http://<YOUR_LOCAL_IP>:5000
 ```
-- **Default Admin Password**: `admin123` *(changeable anytime in the Admin panel)*
+*(The exact IP and a phone QR code are displayed in the terminal and in the web interface)*
 
 ---
 
 ## ⚙️ Background & Auto-Start Setup (Linux)
 
-To run Wi-Fi Share automatically in the background whenever your system starts:
+To run Wi-Fi Drop automatically in the background whenever your system starts:
 
 ```bash
 chmod +x setup-autostart.sh
 ./setup-autostart.sh
-```
-
-### Systemd Service Commands:
-```bash
-# Check Status
-systemctl --user status wifi-share.service
-
-# Restart Service
-systemctl --user restart wifi-share.service
 ```
 
 ---
@@ -63,14 +56,20 @@ systemctl --user restart wifi-share.service
 
 ```
 Wi-Fi-Share/
-├── app.py                # Multi-threaded Python 3 HTTP Server & Auth Engine
-├── shared_storage/       # Subfolder storing all shared files (.gitignore protected)
-├── setup-autostart.sh    # Linux autostart setup script
+├── app.py                  # Multi-threaded Python 3 HTTP Server & Dispatcher
+├── config.py               # Server port, directory paths, and expiry limits
+├── setup-autostart.sh      # Linux autostart setup script
+├── core/
+│   ├── drops_engine.py     # In-memory & disk storage engine with daemon cleanup
+│   └── storage.py          # IP discovery, file category & size formatting
+├── routes/
+│   ├── base_handler.py     # Base HTTP handler with static file serving & CORS
+│   └── drop_routes.py      # Unified REST API for file and text drops
 ├── public/
-│   ├── index.html        # Glassmorphic UI layout & modals
-│   ├── styles.css        # Responsive dark glass design system
-│   ├── app.js            # Frontend API client & real-time sync
-│   └── favicon.svg       # Browser tab logo
+│   ├── index.html          # Responsive Glassmorphic Single Page App
+│   ├── styles.css          # Dark glass design system with animations
+│   ├── app.js              # Client controller, live timers & QR modal
+│   └── favicon.svg         # Tab logo icon
 └── README.md
 ```
 
