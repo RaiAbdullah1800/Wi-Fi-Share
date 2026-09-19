@@ -736,6 +736,525 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  // =========================================================================
+  // --- CHAT SYSTEM CONTROLLER ---
+  // =========================================================================
+  let chatActiveSession = null;
+  let activeChatRooms = [];
+  let chatPollInterval = null;
+  let chatLastSeq = 0;
+  let isChatDrawerOpen = false;
+  let chatSelectedRoomId = null;
+
+  // DOM Elements
+  const openChatHeaderBtn = document.getElementById('openChatHeaderBtn');
+  const chatFloatingTrigger = document.getElementById('chatFloatingTrigger');
+  const closeChatDrawerBtn = document.getElementById('closeChatDrawerBtn');
+  const chatDrawer = document.getElementById('chatDrawer');
+  const chatDrawerBackdrop = document.getElementById('chatDrawerBackdrop');
+  const headerChatBadge = document.getElementById('headerChatBadge');
+  const floatingChatBadge = document.getElementById('floatingChatBadge');
+
+  const chatDrawerTitle = document.getElementById('chatDrawerTitle');
+  const chatDrawerSubtitle = document.getElementById('chatDrawerSubtitle');
+  const activeChatTimerBadge = document.getElementById('activeChatTimerBadge');
+  const chatLeaveRoomBtn = document.getElementById('chatLeaveRoomBtn');
+
+  const chatRoomsView = document.getElementById('chatRoomsView');
+  const chatCreateRoomView = document.getElementById('chatCreateRoomView');
+  const chatActiveRoomView = document.getElementById('chatActiveRoomView');
+
+  const activeRoomsCount = document.getElementById('activeRoomsCount');
+  const showCreateRoomBtn = document.getElementById('showCreateRoomBtn');
+  const cancelCreateRoomBtn = document.getElementById('cancelCreateRoomBtn');
+  const backToRoomsListBtn = document.getElementById('backToRoomsListBtn');
+  const chatRoomsList = document.getElementById('chatRoomsList');
+  const chatRoomsEmptyState = document.getElementById('chatRoomsEmptyState');
+
+  const createRoomForm = document.getElementById('createRoomForm');
+  const newRoomTitle = document.getElementById('newRoomTitle');
+  const newRoomPassword = document.getElementById('newRoomPassword');
+  const newRoomLifetime = document.getElementById('newRoomLifetime');
+  const creatorNickname = document.getElementById('creatorNickname');
+  const submitCreateRoomBtn = document.getElementById('submitCreateRoomBtn');
+
+  const chatJoinModal = document.getElementById('chatJoinModal');
+  const closeChatJoinModalBtn = document.getElementById('closeChatJoinModalBtn');
+  const cancelChatJoinBtn = document.getElementById('cancelChatJoinBtn');
+  const chatJoinForm = document.getElementById('chatJoinForm');
+  const joinModalRoomTitle = document.getElementById('joinModalRoomTitle');
+  const joinNickname = document.getElementById('joinNickname');
+  const joinPassword = document.getElementById('joinPassword');
+  const joinErrorBanner = document.getElementById('joinErrorBanner');
+
+  const chatParticipantsCount = document.getElementById('chatParticipantsCount');
+  const chatMessagesStream = document.getElementById('chatMessagesStream');
+  const chatMessageForm = document.getElementById('chatMessageForm');
+  const chatMessageInput = document.getElementById('chatMessageInput');
+  const chatCharCounter = document.getElementById('chatCharCounter');
+  const chatSendBtn = document.getElementById('chatSendBtn');
+
+  // Open & Close Drawer
+  function openChatDrawer() {
+    if (chatDrawer) chatDrawer.classList.add('active');
+    if (chatDrawerBackdrop) chatDrawerBackdrop.classList.add('active');
+    isChatDrawerOpen = true;
+
+    if (chatActiveSession) {
+      showDrawerView('active');
+      startChatPolling();
+    } else {
+      showDrawerView('rooms');
+      loadChatRooms();
+    }
+  }
+
+  function closeChatDrawer() {
+    if (chatDrawer) chatDrawer.classList.remove('active');
+    if (chatDrawerBackdrop) chatDrawerBackdrop.classList.remove('active');
+    isChatDrawerOpen = false;
+  }
+
+  if (openChatHeaderBtn) openChatHeaderBtn.addEventListener('click', openChatDrawer);
+  if (chatFloatingTrigger) chatFloatingTrigger.addEventListener('click', openChatDrawer);
+  if (closeChatDrawerBtn) closeChatDrawerBtn.addEventListener('click', closeChatDrawer);
+  if (chatDrawerBackdrop) chatDrawerBackdrop.addEventListener('click', closeChatDrawer);
+
+  function showDrawerView(viewName) {
+    if (!chatRoomsView || !chatCreateRoomView || !chatActiveRoomView) return;
+    chatRoomsView.style.display = viewName === 'rooms' ? 'flex' : 'none';
+    chatCreateRoomView.style.display = viewName === 'create' ? 'flex' : 'none';
+    chatActiveRoomView.style.display = viewName === 'active' ? 'flex' : 'none';
+
+    if (viewName === 'active') {
+      if (chatActiveSession) {
+        if (chatDrawerTitle) chatDrawerTitle.textContent = chatActiveSession.title;
+        if (chatDrawerSubtitle) chatDrawerSubtitle.textContent = `Joined as ${chatActiveSession.user_name}`;
+      }
+      if (activeChatTimerBadge) activeChatTimerBadge.style.display = 'inline-flex';
+      if (chatLeaveRoomBtn) chatLeaveRoomBtn.style.display = 'inline-flex';
+    } else {
+      if (chatDrawerTitle) chatDrawerTitle.textContent = 'Wi-Fi Rooms';
+      if (chatDrawerSubtitle) chatDrawerSubtitle.textContent = 'Password-Protected • Auto-Expiring';
+      if (activeChatTimerBadge) activeChatTimerBadge.style.display = 'none';
+      if (chatLeaveRoomBtn) chatLeaveRoomBtn.style.display = 'none';
+    }
+  }
+
+  if (showCreateRoomBtn) {
+    showCreateRoomBtn.addEventListener('click', () => {
+      showDrawerView('create');
+      if (newRoomTitle) newRoomTitle.focus();
+    });
+  }
+
+  if (cancelCreateRoomBtn) {
+    cancelCreateRoomBtn.addEventListener('click', () => {
+      showDrawerView('rooms');
+    });
+  }
+
+  if (backToRoomsListBtn) {
+    backToRoomsListBtn.addEventListener('click', () => {
+      showDrawerView('rooms');
+      loadChatRooms();
+    });
+  }
+
+  // Fetch Rooms
+  async function loadChatRooms() {
+    try {
+      const res = await fetch('/api/chats');
+      if (!res.ok) return;
+      const data = await res.json();
+      activeChatRooms = data.rooms || [];
+      const count = activeChatRooms.length;
+
+      if (headerChatBadge) headerChatBadge.textContent = count;
+      if (floatingChatBadge) floatingChatBadge.textContent = count;
+      if (activeRoomsCount) activeRoomsCount.textContent = count;
+
+      renderChatRooms();
+    } catch (err) {
+      console.error('Error fetching chat rooms:', err);
+    }
+  }
+
+  function renderChatRooms() {
+    if (!chatRoomsList) return;
+    chatRoomsList.innerHTML = '';
+
+    if (activeChatRooms.length === 0) {
+      if (chatRoomsEmptyState) chatRoomsEmptyState.style.display = 'block';
+      return;
+    }
+
+    if (chatRoomsEmptyState) chatRoomsEmptyState.style.display = 'none';
+
+    const now = Date.now() / 1000;
+    activeChatRooms.forEach(room => {
+      const remainingSecs = Math.max(0, Math.floor(room.expires_at - now));
+      const hours = Math.floor(remainingSecs / 3600);
+      const mins = Math.floor((remainingSecs % 3600) / 60);
+      const timeStr = hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
+
+      const card = document.createElement('div');
+      card.className = 'chat-room-card';
+      card.innerHTML = `
+        <div class="chat-room-card-top">
+          <div class="chat-room-title">${escapeHtml(room.title)}</div>
+          <span class="timer-badge ${remainingSecs < 1800 ? 'warning' : ''}">
+            ⏱️ ${timeStr}
+          </span>
+        </div>
+        <div class="chat-room-meta">
+          <span>Host: ${escapeHtml(room.creator_name)}</span>
+          <span>•</span>
+          <span>${room.participant_count} online</span>
+          <span>•</span>
+          <span>${room.message_count} msg${room.message_count !== 1 ? 's' : ''}</span>
+        </div>
+        <div class="chat-room-footer">
+          <span>🔒 Password Protected</span>
+          <span class="join-action">Join Room ➔</span>
+        </div>
+      `;
+
+      card.addEventListener('click', () => {
+        openJoinModal(room);
+      });
+
+      chatRoomsList.appendChild(card);
+    });
+  }
+
+  // Create Room Handler
+  if (createRoomForm) {
+    createRoomForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const title = newRoomTitle.value.trim();
+      const password = newRoomPassword.value.trim();
+      const lifetime_minutes = parseInt(newRoomLifetime.value, 10);
+      const creator_name = creatorNickname.value.trim() || 'Host';
+
+      if (!password) {
+        showToast('Password or PIN is required', true);
+        return;
+      }
+
+      try {
+        submitCreateRoomBtn.disabled = true;
+        submitCreateRoomBtn.textContent = 'Creating room...';
+
+        const res = await fetch('/api/chats/create', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title, password, lifetime_minutes, creator_name })
+        });
+
+        const data = await res.json();
+        if (res.ok && data.status === 'success') {
+          chatActiveSession = data.session;
+          sessionStorage.setItem('wifi_chat_session', JSON.stringify(chatActiveSession));
+          createRoomForm.reset();
+          showToast(`Room "${data.session.title}" created!`);
+          enterActiveRoom();
+          loadChatRooms();
+        } else {
+          showToast(data.error || 'Failed to create room', true);
+        }
+      } catch (err) {
+        showToast('Network error creating room', true);
+      } finally {
+        submitCreateRoomBtn.disabled = false;
+        submitCreateRoomBtn.textContent = '🚀 Create & Enter Room';
+      }
+    });
+  }
+
+  // Join Room Modal
+  function openJoinModal(room) {
+    chatSelectedRoomId = room.room_id;
+    if (joinModalRoomTitle) joinModalRoomTitle.textContent = `Join ${room.title}`;
+    if (joinPassword) joinPassword.value = '';
+    if (joinErrorBanner) joinErrorBanner.style.display = 'none';
+
+    const savedName = localStorage.getItem('wifi_chat_nickname') || '';
+    if (joinNickname && savedName) joinNickname.value = savedName;
+
+    if (chatJoinModal) chatJoinModal.classList.add('active');
+    setTimeout(() => {
+      if (joinNickname && !joinNickname.value) joinNickname.focus();
+      else if (joinPassword) joinPassword.focus();
+    }, 100);
+  }
+
+  function closeJoinModal() {
+    if (chatJoinModal) chatJoinModal.classList.remove('active');
+    chatSelectedRoomId = null;
+  }
+
+  if (closeChatJoinModalBtn) closeChatJoinModalBtn.addEventListener('click', closeJoinModal);
+  if (cancelChatJoinBtn) cancelChatJoinBtn.addEventListener('click', closeJoinModal);
+
+  if (chatJoinForm) {
+    chatJoinForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const user_name = joinNickname.value.trim() || 'Guest';
+      const password = joinPassword.value.trim();
+
+      if (!chatSelectedRoomId || !password) return;
+
+      try {
+        const res = await fetch('/api/chats/join', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            room_id: chatSelectedRoomId,
+            password,
+            user_name
+          })
+        });
+
+        const data = await res.json();
+        if (res.ok && data.status === 'success') {
+          chatActiveSession = data.session;
+          sessionStorage.setItem('wifi_chat_session', JSON.stringify(chatActiveSession));
+          localStorage.setItem('wifi_chat_nickname', user_name);
+
+          closeJoinModal();
+          showToast(`Joined ${data.session.title}!`);
+          enterActiveRoom();
+          loadChatRooms();
+        } else {
+          if (joinErrorBanner) {
+            joinErrorBanner.textContent = data.error || 'Incorrect password';
+            joinErrorBanner.style.display = 'block';
+          }
+        }
+      } catch (err) {
+        if (joinErrorBanner) {
+          joinErrorBanner.textContent = 'Network error joining room';
+          joinErrorBanner.style.display = 'block';
+        }
+      }
+    });
+  }
+
+  // Active Room Logic
+  function enterActiveRoom() {
+    chatLastSeq = 0;
+    if (chatMessagesStream) chatMessagesStream.innerHTML = '';
+    showDrawerView('active');
+    startChatPolling();
+    setTimeout(() => {
+      if (chatMessageInput) chatMessageInput.focus();
+    }, 150);
+  }
+
+  function startChatPolling() {
+    if (chatPollInterval) clearInterval(chatPollInterval);
+    fetchChatMessages();
+    chatPollInterval = setInterval(() => {
+      if (chatActiveSession) {
+        fetchChatMessages();
+      }
+    }, 1500);
+  }
+
+  async function fetchChatMessages() {
+    if (!chatActiveSession || !chatActiveSession.token) return;
+
+    try {
+      const res = await fetch(`/api/chats/messages?token=${encodeURIComponent(chatActiveSession.token)}&after=${chatLastSeq}`);
+      if (res.status === 401) {
+        showToast('Chat room has expired or ended', true);
+        leaveActiveRoomLocally();
+        return;
+      }
+      if (!res.ok) return;
+
+      const data = await res.json();
+      if (data.status === 'success') {
+        const remaining = data.expires_in_seconds;
+        const hrs = Math.floor(remaining / 3600);
+        const mins = Math.floor((remaining % 3600) / 60);
+        const secs = remaining % 60;
+        const timeStr = hrs > 0
+          ? `⏱️ ${hrs}h ${mins}m`
+          : `⏱️ ${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+
+        if (activeChatTimerBadge) activeChatTimerBadge.textContent = timeStr;
+
+        if (chatParticipantsCount && data.participants) {
+          chatParticipantsCount.textContent = `${data.participant_count} online (${data.participants.slice(0, 3).join(', ')}${data.participant_count > 3 ? '...' : ''})`;
+        }
+
+        if (data.messages && data.messages.length > 0) {
+          appendMessages(data.messages);
+          const maxSeq = Math.max(...data.messages.map(m => m.id));
+          if (maxSeq > chatLastSeq) chatLastSeq = maxSeq;
+        }
+      }
+    } catch (err) {
+      console.warn('Error polling chat messages:', err);
+    }
+  }
+
+  function appendMessages(messages) {
+    if (!chatMessagesStream) return;
+    const isScrolledToBottom = chatMessagesStream.scrollHeight - chatMessagesStream.clientHeight <= chatMessagesStream.scrollTop + 60;
+
+    messages.forEach(msg => {
+      const row = document.createElement('div');
+      if (msg.is_system) {
+        row.className = 'chat-msg-row system';
+        row.innerHTML = `<span class="chat-system-pill">${escapeHtml(msg.text)}</span>`;
+      } else {
+        const isOwn = chatActiveSession && msg.user === chatActiveSession.user_name;
+        row.className = `chat-msg-row ${isOwn ? 'own' : 'other'}`;
+
+        const authorColor = getAuthorColor(msg.user);
+        row.innerHTML = `
+          <div class="chat-msg-bubble">
+            ${!isOwn ? `<div class="chat-msg-author" style="color: ${authorColor};">${escapeHtml(msg.user)}</div>` : ''}
+            <div class="chat-msg-text">${escapeHtml(msg.text)}</div>
+            <span class="chat-msg-time">${msg.time_formatted || ''}</span>
+          </div>
+        `;
+      }
+
+      chatMessagesStream.appendChild(row);
+    });
+
+    if (isScrolledToBottom) {
+      chatMessagesStream.scrollTop = chatMessagesStream.scrollHeight;
+    }
+  }
+
+  function getAuthorColor(name) {
+    const palette = ['#38bdf8', '#a855f7', '#34d399', '#fbbf24', '#f472b6', '#818cf8', '#fb923c'];
+    let hash = 0;
+    for (let i = 0; i < name.length; i++) {
+      hash = name.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    const idx = Math.abs(hash) % palette.length;
+    return palette[idx];
+  }
+
+  // Send Message
+  if (chatMessageForm) {
+    chatMessageForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      await handleSendChatMessage();
+    });
+  }
+
+  if (chatMessageInput) {
+    chatMessageInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        handleSendChatMessage();
+      }
+    });
+
+    chatMessageInput.addEventListener('input', () => {
+      const len = chatMessageInput.value.length;
+      if (chatCharCounter) chatCharCounter.textContent = `${len}/2000`;
+    });
+  }
+
+  async function handleSendChatMessage() {
+    if (!chatActiveSession || !chatMessageInput) return;
+    const text = chatMessageInput.value.trim();
+    if (!text) return;
+
+    chatMessageInput.value = '';
+    if (chatCharCounter) chatCharCounter.textContent = '0/2000';
+
+    try {
+      const res = await fetch('/api/chats/message', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          token: chatActiveSession.token,
+          text
+        })
+      });
+
+      const data = await res.json();
+      if (res.ok && data.status === 'success') {
+        fetchChatMessages();
+      } else {
+        showToast(data.error || 'Failed to send message', true);
+      }
+    } catch (err) {
+      showToast('Network error sending message', true);
+    }
+  }
+
+  // Leave Room
+  if (chatLeaveRoomBtn) {
+    chatLeaveRoomBtn.addEventListener('click', async () => {
+      if (!confirm('Are you sure you want to leave this chat room?')) return;
+      if (chatActiveSession && chatActiveSession.token) {
+        try {
+          await fetch('/api/chats/leave', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token: chatActiveSession.token })
+          });
+        } catch (e) {}
+      }
+      leaveActiveRoomLocally();
+      showToast('Left chat room');
+    });
+  }
+
+  function leaveActiveRoomLocally() {
+    if (chatPollInterval) clearInterval(chatPollInterval);
+    chatActiveSession = null;
+    sessionStorage.removeItem('wifi_chat_session');
+    showDrawerView('rooms');
+    loadChatRooms();
+  }
+
+  // Restore Active Chat Session on Page Load
+  function restoreChatSession() {
+    try {
+      const stored = sessionStorage.getItem('wifi_chat_session');
+      if (stored) {
+        const session = JSON.parse(stored);
+        if (session && session.token && session.expires_at > (Date.now() / 1000)) {
+          chatActiveSession = session;
+          fetch(`/api/chats/messages?token=${encodeURIComponent(session.token)}&after=0`)
+            .then(res => {
+              if (res.ok) {
+                if (headerChatBadge) headerChatBadge.textContent = 'Active';
+              } else {
+                sessionStorage.removeItem('wifi_chat_session');
+                chatActiveSession = null;
+              }
+            })
+            .catch(() => {});
+        } else {
+          sessionStorage.removeItem('wifi_chat_session');
+        }
+      }
+    } catch (e) {}
+  }
+
+  // Periodic rooms count update (every 10s)
+  setInterval(() => {
+    if (!isChatDrawerOpen) {
+      loadChatRooms();
+    }
+  }, 10000);
+
+  // Initialize Chat
+  restoreChatSession();
+  loadChatRooms();
+
   // Initial Load
   loadDrops();
 });

@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="styles.css?v=2">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 </head>
 <body>
@@ -51,6 +51,14 @@
             <rect x="3" y="14" width="7" height="7"></rect>
           </svg>
           <span>Connect Phone</span>
+        </button>
+
+        <button class="btn btn-primary purple" id="openChatHeaderBtn" title="Open Wi-Fi Chat">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+          </svg>
+          <span>Wi-Fi Chat</span>
+          <span class="chat-header-badge" id="headerChatBadge">0</span>
         </button>
       </div>
     </header>
@@ -347,9 +355,183 @@
     </div>
   </div>
 
+  <!-- FLOATING CHAT BUTTON (RIGHT EDGE) -->
+  <button class="chat-floating-trigger" id="chatFloatingTrigger" title="Open Wi-Fi Chat">
+    <span class="chat-floating-icon">💬</span>
+    <span class="chat-floating-text">Chat</span>
+    <span class="chat-floating-badge" id="floatingChatBadge">0</span>
+  </button>
+
+  <!-- RIGHT-SIDE CHAT DRAWER BACKDROP -->
+  <div class="chat-drawer-backdrop" id="chatDrawerBackdrop"></div>
+
+  <!-- RIGHT-SIDE CHAT DRAWER -->
+  <aside class="chat-drawer" id="chatDrawer">
+    
+    <!-- DRAWER HEADER -->
+    <div class="chat-drawer-header">
+      <div class="chat-header-left">
+        <div class="chat-header-icon">💬</div>
+        <div>
+          <h3 class="chat-drawer-title" id="chatDrawerTitle">Wi-Fi Rooms</h3>
+          <p class="chat-drawer-subtitle" id="chatDrawerSubtitle">Password-Protected • Auto-Expiring</p>
+        </div>
+      </div>
+
+      <div class="chat-header-actions">
+        <span class="timer-badge warning" id="activeChatTimerBadge" style="display: none;">⏱️ 00:00</span>
+        <button class="btn btn-secondary icon-only" id="chatLeaveRoomBtn" style="display: none;" title="Logout / Leave Room">
+          🚪
+        </button>
+        <button class="btn btn-secondary icon-only" id="closeChatDrawerBtn" title="Close Chat Drawer">
+          ✕
+        </button>
+      </div>
+    </div>
+
+    <!-- VIEW 1: ACTIVE ROOMS DIRECTORY -->
+    <div class="chat-drawer-view" id="chatRoomsView">
+      <div class="chat-view-toolbar">
+        <div class="toolbar-title-group">
+          <span class="toolbar-label">Active Rooms</span>
+          <span class="toolbar-badge" id="activeRoomsCount">0</span>
+        </div>
+        <button class="btn btn-primary purple" id="showCreateRoomBtn" style="padding: 0.45rem 0.85rem; font-size: 0.85rem;">
+          ➕ New Room
+        </button>
+      </div>
+
+      <div class="chat-rooms-list" id="chatRoomsList"></div>
+
+      <div class="chat-empty-state" id="chatRoomsEmptyState" style="display: none;">
+        <div class="chat-empty-icon">💬</div>
+        <h4>No Active Chat Rooms</h4>
+        <p>Create a password-protected room to chat with anyone on your local Wi-Fi!</p>
+      </div>
+    </div>
+
+    <!-- VIEW 2: CREATE ROOM VIEW -->
+    <div class="chat-drawer-view" id="chatCreateRoomView" style="display: none;">
+      <div class="chat-subview-nav">
+        <button type="button" class="btn-text-link" id="cancelCreateRoomBtn">⬅️ Back to Rooms</button>
+        <h4>Create Chat Room</h4>
+      </div>
+
+      <form id="createRoomForm" class="chat-form">
+        <div class="form-group">
+          <label for="newRoomTitle">Room Topic / Name <span class="required-star">*</span></label>
+          <input type="text" id="newRoomTitle" placeholder="e.g. Project Brainstorm, General Talk" required>
+        </div>
+
+        <div class="form-group">
+          <label for="newRoomPassword">Set Room Password / PIN <span class="required-star">*</span></label>
+          <input type="password" id="newRoomPassword" placeholder="Enter custom PIN or password..." required>
+        </div>
+
+        <div class="form-group">
+          <label for="newRoomLifetime">Room Lifetime (Auto-Destruct)</label>
+          <select id="newRoomLifetime">
+            <option value="60">1 Hour</option>
+            <option value="180" selected>3 Hours (Default)</option>
+            <option value="360">6 Hours</option>
+            <option value="720">12 Hours</option>
+            <option value="1440">24 Hours (Max 1 Day)</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="creatorNickname">Your Display Name</label>
+          <input type="text" id="creatorNickname" placeholder="e.g. Alex, Sam (Laptop)">
+        </div>
+
+        <div class="notice-banner" style="font-size: 0.82rem;">
+          ⏱️ <strong>Max 24h Lifetime:</strong> All messages are stored in memory and permanently deleted when the room expires.
+        </div>
+
+        <button type="submit" class="btn btn-primary purple w-full" id="submitCreateRoomBtn">
+          🚀 Create & Enter Room
+        </button>
+      </form>
+    </div>
+
+    <!-- VIEW 3: ACTIVE ROOM MESSAGES STREAM VIEW -->
+    <div class="chat-drawer-view" id="chatActiveRoomView" style="display: none;">
+      
+      <div class="chat-room-info-bar">
+        <button type="button" class="btn-text-link" id="backToRoomsListBtn" title="Switch or view rooms">
+          ⬅️ Switch Room
+        </button>
+        <div class="chat-roster-indicator">
+          <span class="online-dot"></span>
+          <span id="chatParticipantsCount">1 online</span>
+        </div>
+      </div>
+
+      <!-- Messages Stream Area -->
+      <div class="chat-messages-stream" id="chatMessagesStream">
+        <div class="chat-messages-placeholder" id="chatLoadingPlaceholder">Loading messages...</div>
+      </div>
+
+      <!-- Message Input Footer Bar -->
+      <form id="chatMessageForm" class="chat-input-bar">
+        <div class="chat-input-wrapper">
+          <textarea id="chatMessageInput" placeholder="Type a message... (Enter to send)" rows="1" maxlength="2000" required></textarea>
+          <div class="chat-input-meta">
+            <span class="chat-char-counter" id="chatCharCounter">0/2000</span>
+          </div>
+        </div>
+        <button type="submit" class="btn btn-primary purple chat-send-btn" id="chatSendBtn" title="Send message">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+            <line x1="22" y1="2" x2="11" y2="13"></line>
+            <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+          </svg>
+        </button>
+      </form>
+
+    </div>
+
+  </aside>
+
+  <!-- MODAL: JOIN ROOM PASSWORD PROMPT -->
+  <div class="modal-overlay" id="chatJoinModal">
+    <div class="modal-card">
+      <button class="modal-close" id="closeChatJoinModalBtn">&times;</button>
+      <div class="modal-header align-left">
+        <div class="modal-title-row">
+          <div class="modal-icon-lg purple">💬</div>
+          <div>
+            <h2 id="joinModalRoomTitle">Join Chat Room</h2>
+            <p class="subtitle">Enter your nickname and the room's password</p>
+          </div>
+        </div>
+      </div>
+
+      <form id="chatJoinForm" style="margin-top: 1.25rem;">
+        <div class="form-group" style="margin-bottom: 1rem;">
+          <label for="joinNickname">Your Display Name</label>
+          <input type="text" id="joinNickname" placeholder="e.g. Alex, Sam (Phone)" required>
+        </div>
+
+        <div class="form-group" style="margin-bottom: 1rem;">
+          <label for="joinPassword">Room Password or PIN <span class="required-star">*</span></label>
+          <input type="password" id="joinPassword" placeholder="Enter password..." required autofocus>
+        </div>
+
+        <div class="error-banner" id="joinErrorBanner" style="display: none; margin-bottom: 1rem;"></div>
+
+        <div class="modal-actions">
+          <button type="button" class="btn btn-secondary" id="cancelChatJoinBtn">Cancel</button>
+          <button type="submit" class="btn btn-primary purple" id="confirmChatJoinBtn">
+            🔓 Unlock & Enter
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <!-- TOAST CONTAINER -->
   <div class="toast-container" id="toastContainer"></div>
 
-  <script src="app.js"></script>
+  <script src="app.js?v=2"></script>
 </body>
 </html>
