@@ -759,6 +759,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const chatDrawerSubtitle = document.getElementById('chatDrawerSubtitle');
   const activeChatTimerBadge = document.getElementById('activeChatTimerBadge');
   const chatLeaveRoomBtn = document.getElementById('chatLeaveRoomBtn');
+  const chatDeleteRoomBtn = document.getElementById('chatDeleteRoomBtn');
 
   const chatRoomsView = document.getElementById('chatRoomsView');
   const chatCreateRoomView = document.getElementById('chatCreateRoomView');
@@ -833,11 +834,13 @@ document.addEventListener('DOMContentLoaded', () => {
       }
       if (activeChatTimerBadge) activeChatTimerBadge.style.display = 'inline-flex';
       if (chatLeaveRoomBtn) chatLeaveRoomBtn.style.display = 'inline-flex';
+      if (chatDeleteRoomBtn) chatDeleteRoomBtn.style.display = 'inline-flex';
     } else {
       if (chatDrawerTitle) chatDrawerTitle.textContent = 'Wi-Fi Rooms';
       if (chatDrawerSubtitle) chatDrawerSubtitle.textContent = 'Password-Protected • Auto-Expiring';
       if (activeChatTimerBadge) activeChatTimerBadge.style.display = 'none';
       if (chatLeaveRoomBtn) chatLeaveRoomBtn.style.display = 'none';
+      if (chatDeleteRoomBtn) chatDeleteRoomBtn.style.display = 'none';
     }
   }
 
@@ -1208,6 +1211,30 @@ document.addEventListener('DOMContentLoaded', () => {
       }
       leaveActiveRoomLocally();
       showToast('Left chat room');
+    });
+  }
+
+  if (chatDeleteRoomBtn) {
+    chatDeleteRoomBtn.addEventListener('click', async () => {
+      if (!confirm('⚠️ Are you sure you want to permanently delete this chat room for everyone? All messages will be destroyed immediately.')) return;
+      if (chatActiveSession && chatActiveSession.token) {
+        try {
+          const res = await fetch('/api/chats/delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token: chatActiveSession.token })
+          });
+          const data = await res.json();
+          if (res.ok && data.status === 'success') {
+            showToast('Room permanently deleted');
+          } else {
+            showToast(data.error || 'Failed to delete room', true);
+          }
+        } catch (e) {
+          showToast('Network error deleting room', true);
+        }
+      }
+      leaveActiveRoomLocally();
     });
   }
 

@@ -6,6 +6,7 @@ from core.chat_engine import (
     list_rooms,
     join_room,
     leave_room,
+    delete_room,
     post_message,
     get_messages
 )
@@ -120,6 +121,32 @@ def handle_chat_routes(handler, path, method):
 
         leave_room(token)
         handler.send_json({"status": "success", "message": "Left chat room"})
+        return True
+
+    # Delete room (permanently destroys room for all users)
+    if method == 'POST' and clean_path == '/api/chats/delete':
+        content_length = int(handler.headers.get('Content-Length', 0))
+        token = None
+        if content_length > 0:
+            try:
+                body = handler.rfile.read(content_length)
+                data = json.loads(body.decode('utf-8'))
+                token = get_token_from_request(handler, data)
+            except Exception:
+                pass
+        if not token:
+            token = get_token_from_request(handler)
+
+        if not token:
+            handler.send_error_msg("Unauthorized. Token required", status=401)
+            return True
+
+        success, error = delete_room(token)
+        if error:
+            handler.send_error_msg(error, status=401 if 'Unauthorized' in error else 400)
+            return True
+
+        handler.send_json({"status": "success", "message": "Chat room deleted successfully"})
         return True
 
     # Fetch delta messages

@@ -198,6 +198,24 @@ def leave_room(token):
 
         return True
 
+def delete_room(token):
+    with chat_lock:
+        if not token or token not in chat_tokens:
+            return False, "Unauthorized. Valid room token required"
+
+        t_data = chat_tokens.get(token)
+        room_id = t_data["room_id"]
+        user_name = t_data["user_name"]
+
+        if room_id in chat_rooms:
+            del chat_rooms[room_id]
+            tokens_to_remove = [tok for tok, t in chat_tokens.items() if t["room_id"] == room_id]
+            for tok in tokens_to_remove:
+                del chat_tokens[tok]
+            return True, None
+
+        return False, "Room not found or already deleted"
+
 def post_message(token, text, client_ip="127.0.0.1"):
     with chat_lock:
         cleanup_expired_rooms()

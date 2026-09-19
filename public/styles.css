@@ -716,7 +716,7 @@ select option {
   align-items: center;
   justify-content: center;
   padding: 1.5rem;
-  z-index: 1000;
+  z-index: 2500;
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.25s ease;
@@ -938,8 +938,30 @@ select option {
   display: flex;
   flex-direction: column;
   gap: 0.6rem;
-  z-index: 2000;
+  z-index: 3000;
   pointer-events: none;
+}
+
+.btn.danger-btn {
+  color: #fca5a5;
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+}
+.btn.danger-btn:hover {
+  background: rgba(239, 68, 68, 0.25);
+  color: #fff;
+  border-color: var(--accent-red);
+}
+
+.btn.leave-btn {
+  color: #fde68a;
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.25);
+}
+.btn.leave-btn:hover {
+  background: rgba(245, 158, 11, 0.25);
+  color: #fff;
+  border-color: var(--accent-amber);
 }
 
 .toast {
