@@ -5,8 +5,10 @@ from socketserver import ThreadingMixIn
 from config import PORT, DROPS_DIR
 from core.storage import get_local_ips
 from core.drops_engine import start_drops_cleanup_thread
+from core.chat_engine import start_chat_cleanup_thread
 from routes.base_handler import BaseRequestHandler
 from routes.drop_routes import handle_drop_routes
+from routes.chat_routes import handle_chat_routes
 
 class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
     daemon_threads = True
@@ -19,6 +21,8 @@ class RequestHandler(BaseRequestHandler):
 
         if handle_drop_routes(self, path, 'GET'):
             return
+        if handle_chat_routes(self, path, 'GET'):
+            return
         if self.serve_static_file(path):
             return
 
@@ -30,20 +34,24 @@ class RequestHandler(BaseRequestHandler):
 
         if handle_drop_routes(self, path, 'POST'):
             return
+        if handle_chat_routes(self, path, 'POST'):
+            return
 
         self.send_error_msg("Invalid endpoint", status=404)
 
 def run_server():
     start_drops_cleanup_thread()
+    start_chat_cleanup_thread()
     server_address = ('0.0.0.0', PORT)
     httpd = ThreadedHTTPServer(server_address, RequestHandler)
     ips = get_local_ips()
 
     print("\n" + "="*60)
-    print("⚡ Wi-Fi Quick Drop & Locked Text Paste Server Started")
+    print("⚡ Wi-Fi Quick Drop & Password-Protected Chat Server")
     print("="*60)
     print(f"📁 Temporary Drops Storage: {DROPS_DIR}")
     print("🔒 Zero Login Required • Protected by Custom PIN/Password • Auto-Expiring")
+    print("💬 Ephemeral Password-Locked Wi-Fi Chat Enabled")
     print("\n🌐 Access URLs:")
     for ip in ips:
         print(f"   👉 http://{ip}:{PORT}")
